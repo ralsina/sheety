@@ -1,5 +1,6 @@
 require "./sheety/errors"
 require "./sheety/token"
+require "./sheety/ast"
 require "./sheety/ast_builder"
 require "./sheety/parser"
 require "./sheety/tokens/operand"
@@ -10,26 +11,28 @@ require "./sheety/tokens/parenthesis"
 module Sheety
   VERSION = "0.1.0"
 
-  # Parse an Excel formula and return an executable function
+  # Parse an Excel formula and return the AST root node
   #
   # Example:
   # ```
-  # func = Sheety.parse("=1 + 2 * 3")
-  # result = func.call({})  # => 7.0
+  # ast = Sheety.parse_to_ast("=1 + 2 * 3")
+  # puts ast.expr # => "(1 + (2 * 3))"
   # ```
-  def self.parse(formula : String) : (Hash(String, Float64 | String) -> Float64 | String)
+  def self.parse_to_ast(formula : String) : AST::Node
     parser = Parser.new
-    parser.parse(formula)
+    _, builder = parser.ast(formula)
+    builder.root
   end
 
-  # Parse an Excel formula and evaluate it with given inputs
+  # Parse an Excel formula and return both tokens and AST
   #
   # Example:
   # ```
-  # result = Sheety.evaluate("=A1 + B1", {"A1" => 10.0, "B1" => 5.0}) # => 15.0
+  # tokens, builder = Sheety.parse("=1 + 2 * 3")
+  # puts builder.root.expr # => "(1 + (2 * 3))"
   # ```
-  def self.evaluate(formula : String, inputs : Hash(String, Float64 | String) = Hash(String, Float64 | String).new) : Float64 | String
-    func = parse(formula)
-    func.call(inputs)
+  def self.parse(formula : String) : Tuple(Array(Token), AstBuilder)
+    parser = Parser.new
+    parser.ast(formula)
   end
 end

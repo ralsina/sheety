@@ -40,6 +40,7 @@ module Sheety
       filters = [
         Tokens::ErrorToken,
         Tokens::StringToken,
+        Tokens::Boolean,
         Tokens::Number,
         Tokens::ComparisonOperator,
         Tokens::ArithmeticOperator,
@@ -101,12 +102,6 @@ module Sheety
       {tokens, builder}
     end
 
-    # Parse and compile a formula to an executable function
-    def parse(expression : String) : (Hash(String, Float64 | String) -> Float64 | String)
-      _, builder = ast(expression)
-      builder.compile(@context)
-    end
-
     private def try_match_token(filter_class : Token.class, expr : String) : Token?
       # Use if/elsif instead of case for class comparison
       if filter_class == Tokens::ErrorToken
@@ -116,6 +111,10 @@ module Sheety
       elsif filter_class == Tokens::StringToken
         if Tokens::StringToken.match?(expr)
           Tokens::StringToken.new(expr, @context)
+        end
+      elsif filter_class == Tokens::Boolean
+        if Tokens::Boolean.match?(expr)
+          Tokens::Boolean.new(expr, @context)
         end
       elsif filter_class == Tokens::Number
         if Tokens::Number.match?(expr)

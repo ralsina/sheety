@@ -24,8 +24,8 @@ module Sheety
 
     # Numeric literal token
     class Number < Operand
-      # Matches integers, floats, scientific notation, TRUE, FALSE
-      NUMBER_REGEX = /^\s*(?P<name>(?:\d+(?:\.\d+)?|\.\d+)(?:E[+-]?\d+)?|TRUE|FALSE)/i
+      # Matches integers, floats, scientific notation (not TRUE/FALSE)
+      NUMBER_REGEX = /^\s*(?P<name>(?:\d+(?:\.\d+)?|\.\d+)(?:E[+-]?\d+)?)/i
 
       def self.match?(s : String) : Regex::MatchData?
         NUMBER_REGEX.match(s)
@@ -38,19 +38,52 @@ module Sheety
       def process(match : Regex::MatchData) : Nil
         super
         # Convert string to numeric value
-        value_str = name.upcase
-        if value_str == "TRUE"
-          @attr["value"] = 1.0
-        elsif value_str == "FALSE"
-          @attr["value"] = 0.0
-        else
-          @attr["value"] = value_str.to_f
-        end
+        value_str = name
+        @attr["value"] = value_str.to_f
         @attr["expr"] = value_str
+        @attr["is_boolean"] = false
       end
 
       def compile : Float64 | String
         @attr["value"].as(Float64)
+      end
+
+      def boolean? : Bool
+        false
+      end
+    end
+
+    # Boolean literal token (TRUE, FALSE)
+    class Boolean < Operand
+      BOOL_REGEX = /^\s*(?P<name>TRUE|FALSE)/i
+
+      def self.match?(s : String) : Regex::MatchData?
+        BOOL_REGEX.match(s)
+      end
+
+      def match(s : String) : Regex::MatchData?
+        self.class.match?(s)
+      end
+
+      def process(match : Regex::MatchData) : Nil
+        super
+        value_str = name.upcase
+        @attr["value"] = (value_str == "TRUE") ? 1.0 : 0.0
+        @attr["expr"] = value_str
+        @attr["is_boolean"] = true
+        @attr["bool_value"] = (value_str == "TRUE")
+      end
+
+      def compile : Float64 | String
+        @attr["value"].as(Float64)
+      end
+
+      def boolean? : Bool
+        true
+      end
+
+      def bool_value : Bool
+        @attr.fetch("bool_value", false).as(Bool)
       end
     end
 

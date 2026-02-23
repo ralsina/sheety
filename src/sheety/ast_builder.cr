@@ -1,66 +1,153 @@
 require "./token"
 require "./errors"
+require "./ast"
 require "./tokens/operand"
 require "./tokens/operator"
+require "./tokens/parenthesis"
 
 module Sheety
-  # Builds an Abstract Syntax Tree (AST) from tokens and compiles to executable code
+  # Builds an Abstract Syntax Tree (AST) from tokens
   class AstBuilder
-    property tokens : Array(Token)
+    # Stack of AST nodes being built
+    property node_stack : Array(AST::Node)
 
     def initialize
-      @tokens = Array(Token).new
+      @node_stack = Array(AST::Node).new
     end
 
+    # Append a token and build AST node
     def append(token : Token) : Nil
-      @tokens << token
+      case token
+      when Tokens::Operand
+        # Operands become leaf nodes
+        node = operand_to_ast_node(token)
+        @node_stack << node
+      when Tokens::Operator
+        # Operators pop their operands and create a new node
+        n_args = token.n_args
+        operands = Array(AST::Node).new
+
+        n_args.times do
+          if @node_stack.empty?
+            raise FormulaError.new("Not enough operands for operator: #{token.name}")
+          end
+          operands.unshift(@node_stack.pop)
+        end
+
+        # Create the appropriate AST node
+        if n_args == 1
+          node = AST::UnaryOp.new(token.name, operands[0])
+        else
+          node = AST::BinaryOp.new(token.name, operands[0], operands[1])
+        end
+
+        @node_stack << node
+      end
     end
 
     def size : Int32
-      @tokens.size
+      @node_stack.size
     end
 
-    def [](index : Int32) : Token
-      @tokens[index]
+    def [](index : Int32) : AST::Node
+      @node_stack[index]
     end
 
-    def pop : Token?
-      @tokens.pop?
+    def pop : AST::Node?
+      @node_stack.pop?
     end
 
     def finish : Nil
       # Validate that we have exactly one root expression
-      if @tokens.size != 1
-        raise FormulaError.new("Expected single root expression, got #{@tokens.size} tokens")
+      if @node_stack.size != 1
+        raise FormulaError.new("Expected single root expression, got #{@node_stack.size} nodes")
       end
     end
 
-    # Compile the AST to an executable function
-    def compile(context : Hash(String, Float64 | String)? = nil) : Proc(Hash(String, Float64 | String), Float64 | String)
-      root = @tokens.last?
-      raise FormulaError.new("No tokens to compile") if root.nil?
-
-      # Return a lambda that evaluates the expression
-      ->(inputs : Hash(String, Float64 | String)) {
-        evaluate_simple(root, inputs).as(Float64 | String)
-      }
+    # Get the root AST node
+    def root : AST::Node
+      if @node_stack.size != 1
+        raise FormulaError.new("AST does not have exactly one root node")
+      end
+      @node_stack.last
     end
 
-    # Simple evaluation for basic arithmetic (no proper AST yet)
-    # For the prototype, just evaluate single numeric operands
-    private def evaluate_simple(token : Token, inputs : Hash(String, Float64 | String)) : Float64 | String
+    # Convert the AST to a string representation
+    def to_s(io : IO) : Nil
+      root.to_s(io)
+    end
+
+    # Get the AST as a tree structure (for inspection/debugging)
+    def to_tree(io : IO, indent : Int32 = 0) : Nil
+      root.to_tree(io, indent)
+    end
+
+    private def operand_to_ast_node(token : Tokens::Operand) : AST::Node
       case token
       when Tokens::Number
-        token.compile.as(Float64)
+        value = token.compile.as(Float64)
+        AST::Number.new(value)
+      when Tokens::Boolean
+        value = token.bool_value
+        AST::Boolean.new(value)
       when Tokens::StringToken
-        token.compile.as(String)
+        value = token.compile.as(String)
+        AST::StringLiteral.new(value)
       when Tokens::ErrorToken
-        # For errors, we could raise or return a string representation
-        token.compile.to_s
+        error = token.compile
+        AST::ErrorValue.new(error.value)
       else
-        # For operators and more complex expressions, we'd need full AST traversal
-        # For now, this is a limitation of the prototype
-        raise FormulaError.new("Complex expressions not yet supported: #{token.class}")
+        # For other operand types (ranges, references), create a placeholder
+        # This will be implemented when we add those features
+        AST::CellRef.new(token.name)
+      end
+    end
+  end
+end
+
+# Extend AST::Node with tree printing
+module Sheety::AST
+  class Node
+    def to_tree(io : IO, indent : Int32 = 0) : Nil
+      io << "  " * indent
+      inspect(io)
+      io << "\n"
+    end
+  end
+
+  class UnaryOp
+    def to_tree(io : IO, indent : Int32 = 0) : Nil
+      io << "  " * indent
+      io << "#{operator} <UnaryOp>\n"
+      @operand.to_tree(io, indent + 1)
+    end
+  end
+
+  class BinaryOp
+    def to_tree(io : IO, indent : Int32 = 0) : Nil
+      io << "  " * indent
+      io << "#{operator} <BinaryOp>\n"
+      @left.to_tree(io, indent + 1)
+      @right.to_tree(io, indent + 1)
+    end
+  end
+
+  class FunctionCall
+    def to_tree(io : IO, indent : Int32 = 0) : Nil
+      io << "  " * indent
+      io << "#{@function_name} <FunctionCall> (#{@arguments.size} args)\n"
+      @arguments.each do |arg|
+        arg.to_tree(io, indent + 1)
+      end
+    end
+  end
+
+  class ArrayConstant
+    def to_tree(io : IO, indent : Int32 = 0) : Nil
+      io << "  " * indent
+      io << "<ArrayConstant> (#{@elements.size} elements)\n"
+      @elements.each do |elem|
+        elem.to_tree(io, indent + 1)
       end
     end
   end

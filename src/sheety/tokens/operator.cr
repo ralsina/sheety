@@ -55,8 +55,9 @@ module Sheety
       end
 
       def ast(tokens : Array(Token), stack : Array(Token), builder : AstBuilder) : Nil
-        super
+        # Update name BEFORE adding to tokens array
         update_name(tokens)
+        super # This adds self to tokens array
         current_pred = pred
 
         # Pop operators with higher or equal precedence

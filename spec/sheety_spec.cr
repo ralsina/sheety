@@ -4,28 +4,33 @@ require "../src/sheety"
 describe Sheety do
   describe "parsing" do
     it "parses a simple number" do
-      result = Sheety.evaluate("=42")
-      result.should eq(42.0)
+      ast = Sheety.parse_to_ast("=42")
+      ast.should be_a(Sheety::AST::Number)
+      ast.expr.should eq("42")
     end
 
     it "parses TRUE" do
-      result = Sheety.evaluate("=TRUE")
-      result.should eq(1.0)
+      ast = Sheety.parse_to_ast("=TRUE")
+      ast.should be_a(Sheety::AST::Boolean)
+      ast.expr.should eq("TRUE")
     end
 
     it "parses FALSE" do
-      result = Sheety.evaluate("=FALSE")
-      result.should eq(0.0)
+      ast = Sheety.parse_to_ast("=FALSE")
+      ast.should be_a(Sheety::AST::Boolean)
+      ast.expr.should eq("FALSE")
     end
 
     it "parses a float" do
-      result = Sheety.evaluate("=3.14")
-      result.should eq(3.14)
+      ast = Sheety.parse_to_ast("=3.14")
+      ast.should be_a(Sheety::AST::Number)
+      ast.expr.should eq("3.14")
     end
 
     it "parses scientific notation" do
-      result = Sheety.evaluate("=1E2")
-      result.should eq(100.0)
+      ast = Sheety.parse_to_ast("=1E2")
+      ast.should be_a(Sheety::AST::Number)
+      ast.expr.should eq("100")
     end
 
     it "detects formulas correctly" do
@@ -36,10 +41,116 @@ describe Sheety do
     end
   end
 
+  describe "AST structure" do
+    it "builds AST for simple addition" do
+      ast = Sheety.parse_to_ast("=1+2")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq("+")
+      binop.left.should be_a(Sheety::AST::Number)
+      binop.right.should be_a(Sheety::AST::Number)
+    end
+
+    it "builds AST with operator precedence" do
+      ast = Sheety.parse_to_ast("=1+2*3")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq("+")
+
+      # Left should be a number
+      binop.left.should be_a(Sheety::AST::Number)
+
+      # Right should be the multiplication
+      binop.right.should be_a(Sheety::AST::BinaryOp)
+      mult = binop.right.as(Sheety::AST::BinaryOp)
+      mult.operator.should eq("*")
+    end
+
+    it "builds AST for parentheses" do
+      ast = Sheety.parse_to_ast("=(1+2)*3")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq("*")
+
+      # Left should be the addition in parens
+      binop.left.should be_a(Sheety::AST::BinaryOp)
+      add = binop.left.as(Sheety::AST::BinaryOp)
+      add.operator.should eq("+")
+    end
+
+    it "builds AST for subtraction" do
+      ast = Sheety.parse_to_ast("=10-4")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq("-")
+    end
+
+    it "builds AST for division" do
+      ast = Sheety.parse_to_ast("=20/4")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq("/")
+    end
+
+    it "builds AST for exponentiation" do
+      ast = Sheety.parse_to_ast("=2^3")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq("^")
+    end
+
+    it "builds AST for percent" do
+      ast = Sheety.parse_to_ast("=50%")
+      ast.should be_a(Sheety::AST::UnaryOp)
+      unop = ast.as(Sheety::AST::UnaryOp)
+      unop.operator.should eq("%")
+    end
+
+    it "builds AST for unary minus" do
+      ast = Sheety.parse_to_ast("=-5")
+      ast.should be_a(Sheety::AST::UnaryOp)
+      unop = ast.as(Sheety::AST::UnaryOp)
+      unop.operator.should eq("u-")
+      unop.operand.should be_a(Sheety::AST::Number)
+    end
+
+    it "builds AST for comparison operators" do
+      ast = Sheety.parse_to_ast("=5>3")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq(">")
+    end
+
+    it "builds AST for complex expression" do
+      ast = Sheety.parse_to_ast("=(1+2)*(3+4)")
+      ast.should be_a(Sheety::AST::BinaryOp)
+      binop = ast.as(Sheety::AST::BinaryOp)
+      binop.operator.should eq("*")
+      binop.left.should be_a(Sheety::AST::BinaryOp)
+      binop.right.should be_a(Sheety::AST::BinaryOp)
+    end
+
+    it "generates correct expression string" do
+      ast = Sheety.parse_to_ast("=1+2*3")
+      ast.expr.should eq("(1 + (2 * 3))")
+    end
+
+    it "generates correct expression with parentheses" do
+      ast = Sheety.parse_to_ast("=(1+2)*3")
+      ast.expr.should eq("((1 + 2) * 3)")
+    end
+  end
+
   describe "errors" do
     it "raises error for invalid formula" do
       expect_raises(Sheety::FormulaError) do
         Sheety.parse("not a formula")
+      end
+    end
+
+    it "raises error for mismatched parentheses" do
+      expect_raises(Sheety::ParenthesesError) do
+        Sheety.parse("=(1+2")
       end
     end
   end
