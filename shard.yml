@@ -1,0 +1,9 @@
+name: sheety
+version: 0.1.0
+
+authors:
+  - Roberto Alsina <roberto.alsina@gmail.com>
+
+crystal: '>= 1.19.1'
+
+license: MIT
