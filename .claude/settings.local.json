@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(shards build:*)",
+      "Bash(crystal build:*)",
+      "Bash(crystal spec:*)",
+      "Bash(crystal eval:*)",
+      "Bash(/tmp/test_regex.cr:*)",
+      "Bash(crystal run:*)",
+      "Bash(test_regex.cr:*)",
+      "Bash(ameba --fix:*)",
+      "Bash(git add:*)",
+      "Bash(git rm:*)"
+    ]
+  }
+}
