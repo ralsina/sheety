@@ -18,3 +18,5 @@ dependencies:
     branch: main
   tablo:
     github: hutou/tablo
+  termisu:
+    github: omarluq/termisu
