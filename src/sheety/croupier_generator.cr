@@ -125,6 +125,7 @@ module Sheety
     def generate_source(initial_values : Hash(String, Float64 | String | Bool) = Hash(String, Float64 | String | Bool).new) : String
       source = %{
         require "croupier"
+        require "tablo"
         require "../src/sheety/functions/registry"
 
         # Auto-generated Excel formula tasks for Croupier
@@ -136,14 +137,14 @@ module Sheety
       source += generate_setup_code(initial_values)
       source += "\n\n"
 
-      # Then add formula calculations
+      # Then add task definitions
       @formulas.each do |_, info|
         source += generate_single_task_source(info)
         source += "\n\n"
       end
 
-      # Finally add print statements
-      source += generate_print_code
+      # Finally, run the tasks and print results as a table
+      source += generate_execution_code
 
       source
     end
@@ -168,17 +169,49 @@ module Sheety
       setup
     end
 
-    # Generate code to print all results
-    private def generate_print_code : String
-      print_statements = @formulas.keys.sort.map do |key|
-        "  puts \"#{key}: \" + (Croupier::TaskManager.get(#{key.inspect}) || \"(empty)\")"
-      end.join("\n")
+    # Generate code to execute tasks and print results
+    private def generate_execution_code : String
+      # Get all unique cells (both initial values and formulas)
+      all_cells = (@formulas.keys.to_a).sort
 
+      # Generate table data
+      table_data = all_cells.map do |key|
+        sheet, cell = key.split("!", 2)
+        {sheet: sheet, cell: cell, key: key}
+      end
+
+      # Generate code to display results in a table
       %{
-# Print all cell values
+# Execute all tasks
+puts "=== Executing Croupier Tasks ==="
+Croupier::TaskManager.run_tasks
+
+# Display results in a table
+puts ""
 puts "=== Spreadsheet Results ==="
 puts ""
-#{print_statements}
+
+# Get all cell values
+cell_values = {
+#{all_cells.map do |key|
+  "  #{key.inspect} => Croupier::TaskManager.get(#{key.inspect})"
+end.join(",\n")}
+}
+
+# Create table data
+table_data = cell_values.map do |key, value|
+  sheet, cell = key.split("!", 2)
+  {sheet: sheet, cell: cell, value: value || "(empty)"}
+end
+
+# Create and print table
+table = Tablo::Table.new(table_data) do |t|
+  t.add_column(:sheet, header: "Sheet") { |d| d[:sheet] }
+  t.add_column(:cell, header: "Cell") { |d| d[:cell] }
+  t.add_column(:value, header: "Value") { |d| d[:value] }
+end
+
+puts table
 puts ""
 }
     end
@@ -191,7 +224,6 @@ puts ""
       if ast.nil?
         # Invalid formula
         return %{
-          # Error: Invalid formula for #{info.key}
           Croupier::Task.new(
             id: "formula_#{sanitize_key(info.key)}",
             inputs: [] of String,
@@ -202,42 +234,45 @@ puts ""
         }
       end
 
-      # Extract dependencies
-      dependencies = @extractor.extract(ast, info.sheet)
+      # Extract dependencies - these are the inputs
+      # Add kv:// prefix for k/v store keys
+      dependencies = @extractor.extract(ast, info.sheet).map { |d| "kv://#{d}" }.to_a
 
       # Generate the calculation code
       calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
 
-      # Build the task source with immediate execution
+      # Build the task - the proc should return the result as a string
       %{
-        # Formula: #{info.formula} at #{info.key}
-        # Calculate and store result
-        begin
-          result = (#{calc_code})
+        Croupier::Task.new(
+          id: "formula_#{sanitize_key(info.key)}",
+          inputs: [#{dependencies.map(&.inspect).join(", ")}],
+          outputs: ["kv://#{info.key}"],
+        ) do
+          begin
+            result = (#{calc_code})
 
-          # Convert result to string for storage
-          result_string = case result
-          when Float64
-            if result == result.to_i
-              result.to_i.to_s
+            # Convert result to string - this is what the task "outputs"
+            case result
+            when Float64
+              if result == result.to_i
+                result.to_i.to_s
+              else
+                result.to_s
+              end
+            when String
+              result
+            when Bool
+              result.upcase.to_s
+            when Sheety::Functions::ErrorValue
+              result.to_s
+            when Nil
+              ""
             else
               result.to_s
             end
-          when String
-            result
-          when Bool
-            result.upcase.to_s
-          when Sheety::Functions::ErrorValue
-            result.to_s
-          when Nil
-            ""
-          else
-            result.to_s
+          rescue e : Exception
+            "#ERROR: " + (e.message || "Unknown error")
           end
-
-          Croupier::TaskManager.set(#{info.key.inspect}, result_string)
-        rescue e : Exception
-          Croupier::TaskManager.set(#{info.key.inspect}, "#ERROR: " + (e.message || "Unknown error"))
         end
       }
     end

@@ -16,7 +16,25 @@
       "WebSearch",
       "Bash(crystal:*)",
       "Bash(find:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(shards install:*)",
+      "Bash(./bin/sheety:*)",
+      "Bash(/tmp/test.cr:*)",
+      "Bash(/home/ralsina/code/sheety/test_debug.cr:*)",
+      "Bash(/home/ralsina/code/sheety/debug_ast.cr:*)",
+      "Bash(/tmp/test_codegen.yaml:*)",
+      "Bash(/tmp/test_codegen_yaml.yaml:*)",
+      "Bash(/tmp/show_codegen.cr:*)",
+      "Bash(/home/ralsina/code/sheety/debug_parser.cr:*)",
+      "Bash(/home/ralsina/code/sheety/debug_parser2.cr:*)",
+      "Bash(/home/ralsina/code/sheety/show_generated.cr:*)",
+      "Bash(/home/ralsina/code/sheety/src/sheety/standalone_generator.cr:*)",
+      "Bash(sheety:*)",
+      "Bash(ls:*)",
+      "Bash(echo:*)",
+      "Bash(./examples/test_sheet:*)",
+      "Bash(./test_sheet:*)",
+      "Bash(git reset:*)"
     ]
   }
 }

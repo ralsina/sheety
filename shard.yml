@@ -15,3 +15,5 @@ targets:
 dependencies:
   croupier:
     github: ralsina/croupier
+  tablo:
+    github: hutou/tablo
