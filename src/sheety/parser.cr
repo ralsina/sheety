@@ -3,6 +3,10 @@ require "./ast_builder"
 require "./tokens/operand"
 require "./tokens/operator"
 require "./tokens/parenthesis"
+require "./tokens/function_call"
+require "./tokens/argument_separator"
+require "./tokens/array_constant"
+require "./tokens/named_range"
 
 module Sheety
   # Main parser class for Excel formulas
@@ -39,12 +43,21 @@ module Sheety
       # Token filters in order of priority
       filters = [
         Tokens::ErrorToken,
+        Tokens::ArrayConstant,       # Must come before Function for {...}
         Tokens::StringToken,
         Tokens::Boolean,
+        Tokens::Function,      # Must come before other tokens that start with letters
+        Tokens::NamedRange,    # Must come before Range to distinguish from cell refs
+        Tokens::Range,         # Must come before Number to match ranges like 1:10
         Tokens::Number,
+        Tokens::ArgumentSeparator, # For function argument commas
         Tokens::ComparisonOperator,
+        Tokens::ConcatOperator,     # Text concatenation (&)
         Tokens::ArithmeticOperator,
         Tokens::PercentOperator,
+        Tokens::ColonOperator,
+        # Tokens::SeparatorOperator,  # TODO: Re-enable for array formulas/union
+        Tokens::IntersectOperator,
         Tokens::Parenthesis,
       ]
 
@@ -116,9 +129,29 @@ module Sheety
         if Tokens::Boolean.match?(expr)
           Tokens::Boolean.new(expr, @context)
         end
+      elsif filter_class == Tokens::ArrayConstant
+        if Tokens::ArrayConstant.match?(expr)
+          Tokens::ArrayConstant.new(expr, @context)
+        end
+      elsif filter_class == Tokens::NamedRange
+        if Tokens::NamedRange.match?(expr)
+          Tokens::NamedRange.new(expr, @context)
+        end
+      elsif filter_class == Tokens::Function
+        if Tokens::Function.match?(expr)
+          Tokens::Function.new(expr, @context)
+        end
+      elsif filter_class == Tokens::ArgumentSeparator
+        if Tokens::ArgumentSeparator.match?(expr)
+          Tokens::ArgumentSeparator.new(expr, @context)
+        end
       elsif filter_class == Tokens::Number
         if Tokens::Number.match?(expr)
           Tokens::Number.new(expr, @context)
+        end
+      elsif filter_class == Tokens::Range
+        if Tokens::Range.match?(expr)
+          Tokens::Range.new(expr, @context)
         end
       elsif filter_class == Tokens::ComparisonOperator
         if Tokens::ComparisonOperator.match?(expr)
@@ -128,9 +161,25 @@ module Sheety
         if Tokens::ArithmeticOperator.match?(expr)
           Tokens::ArithmeticOperator.new(expr, @context)
         end
+      elsif filter_class == Tokens::ConcatOperator
+        if Tokens::ConcatOperator.match?(expr)
+          Tokens::ConcatOperator.new(expr, @context)
+        end
       elsif filter_class == Tokens::PercentOperator
         if Tokens::PercentOperator.match?(expr)
           Tokens::PercentOperator.new(expr, @context)
+        end
+      elsif filter_class == Tokens::ColonOperator
+        if Tokens::ColonOperator.match?(expr)
+          Tokens::ColonOperator.new(expr, @context)
+        end
+      elsif filter_class == Tokens::SeparatorOperator
+        if Tokens::SeparatorOperator.match?(expr)
+          Tokens::SeparatorOperator.new(expr, @context)
+        end
+      elsif filter_class == Tokens::IntersectOperator
+        if Tokens::IntersectOperator.match?(expr)
+          Tokens::IntersectOperator.new(expr, @context)
         end
       elsif filter_class == Tokens::Parenthesis
         if Tokens::Parenthesis.match?(expr)

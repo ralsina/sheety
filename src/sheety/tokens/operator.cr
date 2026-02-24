@@ -226,6 +226,42 @@ module Sheety
       end
     end
 
+    # Text concatenation operator
+    class ConcatOperator < Operator
+      CONCAT_REGEX = /^\s*(?P<name>&)/
+
+      def self.match?(s : String) : Regex::MatchData?
+        CONCAT_REGEX.match(s)
+      end
+
+      def match(s : String) : Regex::MatchData?
+        if m = self.class.match?(s)
+          @operator_name = "&"
+          m
+        else
+          nil
+        end
+      end
+
+      def process(match : Regex::MatchData) : Nil
+        @attr["name"] = "&"
+        @operator_name = "&"
+      end
+
+      def set_expr(*tokens : Token) : Nil
+        exprs = tokens.map(&.get_expr)
+        @attr["expr"] = "(#{exprs.join(" & ")})"
+      end
+
+      def compile : Proc(Array(Float64 | String), Float64 | String)
+        ->(args : Array(Float64 | String)) {
+          left = args[0].is_a?(Float64) ? args[0].as(Float64).to_s : args[0].as(String)
+          right = args[1].is_a?(Float64) ? args[1].as(Float64).to_s : args[1].as(String)
+          (left + right).as(Float64 | String)
+        }
+      end
+    end
+
     # Percent operator
     class PercentOperator < Operator
       PERCENT_REGEX = /^\s*(?P<name>%+)/
@@ -255,6 +291,134 @@ module Sheety
       def compile : Proc(Array(Float64 | String), Float64 | String)
         ->(args : Array(Float64 | String)) {
           (args[0].as(Float64) / 100.0).as(Float64 | String)
+        }
+      end
+    end
+
+    # Colon operator for ranges (A1:B5)
+    class ColonOperator < Operator
+      COLON_REGEX = /^\s*(?P<name>:)/
+
+      def self.match?(s : String) : Regex::MatchData?
+        COLON_REGEX.match(s)
+      end
+
+      def match(s : String) : Regex::MatchData?
+        if m = self.class.match?(s)
+          @operator_name = ":"
+          m
+        else
+          nil
+        end
+      end
+
+      def process(match : Regex::MatchData) : Nil
+        @attr["name"] = ":"
+        @operator_name = ":"
+      end
+
+      def set_expr(*tokens : Token) : Nil
+        exprs = tokens.map(&.get_expr)
+        @attr["expr"] = "#{exprs.join(":")}"
+      end
+
+      def compile : Proc(Array(Float64 | String), Float64 | String)
+        # Range operator - placeholder for now
+        ->(args : Array(Float64 | String)) {
+          "(#{args[0]}:#{args[1]})".as(Float64 | String)
+        }
+      end
+    end
+
+    # Separator operator for function arguments (,) and union
+    class SeparatorOperator < Operator
+      SEPARATOR_REGEX = /^\s*(?P<name>,)/
+
+      def self.match?(s : String) : Regex::MatchData?
+        SEPARATOR_REGEX.match(s)
+      end
+
+      def match(s : String) : Regex::MatchData?
+        if m = self.class.match?(s)
+          @operator_name = ","
+          m
+        else
+          nil
+        end
+      end
+
+      def process(match : Regex::MatchData) : Nil
+        @attr["name"] = ","
+        @operator_name = ","
+      end
+
+      def set_expr(*tokens : Token) : Nil
+        exprs = tokens.map(&.get_expr)
+        @attr["expr"] = exprs.join(", ")
+      end
+
+      # Separator has special handling in ast()
+      def ast(tokens : Array(Token), stack : Array(Token), builder : AstBuilder) : Nil
+        # Insert empty operand for consecutive separators or after opening paren
+        if tokens.size > 0
+          last_token = tokens.last
+          if last_token.is_a?(SeparatorOperator) || (last_token.is_a?(Parenthesis) && last_token.is_opening?)
+            # Create and append an empty operand
+            empty = Tokens::EmptyOperand.new("")
+            empty.ast(tokens, stack, builder)
+          end
+        end
+
+        super
+
+        # Pop operators until we find an opening parenthesis
+        while stack.size > 0
+          token = stack.last?
+          break unless token
+          if token.is_a?(Parenthesis) && token.as(Parenthesis).is_opening?
+            break
+          end
+          builder.append(stack.pop)
+        end
+      end
+
+      def compile : Proc(Array(Float64 | String), Float64 | String)
+        ->(args : Array(Float64 | String)) {
+          args.join(", ").as(Float64 | String)
+        }
+      end
+    end
+
+    # Intersection operator (space between ranges)
+    class IntersectOperator < Operator
+      INTERSECT_REGEX = /^\s*(?P<name>\s)\s*/
+
+      def self.match?(s : String) : Regex::MatchData?
+        INTERSECT_REGEX.match(s)
+      end
+
+      def match(s : String) : Regex::MatchData?
+        if m = self.class.match?(s)
+          @operator_name = " "
+          m
+        else
+          nil
+        end
+      end
+
+      def process(match : Regex::MatchData) : Nil
+        @attr["name"] = " "
+        @operator_name = " "
+      end
+
+      def set_expr(*tokens : Token) : Nil
+        exprs = tokens.map(&.get_expr)
+        @attr["expr"] = exprs.join(" ")
+      end
+
+      def compile : Proc(Array(Float64 | String), Float64 | String)
+        ->(args : Array(Float64 | String)) {
+          "(#{args[0]} #{args[1]})".as(Float64 | String)
         }
       end
     end

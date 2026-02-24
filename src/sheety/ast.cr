@@ -37,8 +37,9 @@ module Sheety
       end
 
       private def format_number(value : Float64) : String
-        if value == value.to_i
-          value.to_i.to_s
+        # Check if value is a whole number without overflow
+        if value >= Int64::MIN.to_f && value < Int64::MAX.to_f && value == value.to_i64
+          value.to_i64.to_s
         else
           value.to_s
         end
@@ -93,31 +94,58 @@ module Sheety
     # Cell reference node (e.g., A1, Sheet1!B5)
     class CellRef < Node
       property reference : String
+      property sheet : String?
 
-      def initialize(@reference : String)
+      def initialize(@reference : String, @sheet : String? = nil)
         super()
         @attr["reference"] = @reference
-        @attr["expr"] = @reference
+        @attr["expr"] = @sheet ? "#{@sheet}!#{@reference}" : @reference
       end
 
       def expr : String
-        @reference
+        @sheet ? "#{@sheet}!#{@reference}" : @reference
       end
     end
 
     # Range reference node (e.g., A1:B5)
     class RangeRef < Node
       property range : String
+      property sheet : String?
 
-      def initialize(@range : String)
+      def initialize(@range : String, @sheet : String? = nil)
         super()
         @attr["range"] = @range
-        @attr["expr"] = @range
+        @attr["expr"] = @sheet ? "#{@sheet}!#{@range}" : @range
       end
 
       def expr : String
-        @range
+        @sheet ? "#{@sheet}!#{@range}" : @range
       end
+    end
+
+    # Named range reference node (e.g., MyRange, SalesData)
+    class NamedRef < Node
+      property name : String
+
+      def initialize(@name : String)
+        super()
+        @attr["name"] = @name
+        @attr["expr"] = @name
+      end
+
+      def expr : String
+        @name
+      end
+    end
+
+    # Convenience method for creating CellRef without sheet
+    def self.create_cell_ref(reference : String) : CellRef
+      CellRef.new(reference, nil)
+    end
+
+    # Convenience method for creating RangeRef without sheet
+    def self.create_range_ref(range : String) : RangeRef
+      RangeRef.new(range, nil)
     end
 
     # Unary operation node (e.g., -5, +3)
@@ -177,7 +205,6 @@ module Sheety
 
       def initialize(@elements : Array(Node))
         super()
-        @attr["elements"] = @elements
         @attr["expr"] = "{#{@elements.map(&.expr).join(", ")}}"
       end
 

@@ -12,7 +12,11 @@
       "Bash(git add:*)",
       "Bash(git rm:*)",
       "Bash(git commit:*)",
-      "Bash(git clone:*)"
+      "Bash(git clone:*)",
+      "WebSearch",
+      "Bash(crystal:*)",
+      "Bash(find:*)",
+      "Bash(curl:*)"
     ]
   }
 }

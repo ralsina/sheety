@@ -45,6 +45,11 @@ module Sheety
       end
     end
 
+    # Append an AST node directly
+    def append(node : AST::Node) : Nil
+      @node_stack << node
+    end
+
     def size : Int32
       @node_stack.size
     end
@@ -96,9 +101,63 @@ module Sheety
       when Tokens::ErrorToken
         error = token.compile
         AST::ErrorValue.new(error.value)
+      when Tokens::Range
+        sheet = token.sheet_name
+        if token.range?
+          AST::RangeRef.new(token.name, sheet)
+        else
+          AST::CellRef.new(token.name, sheet)
+        end
+      when Tokens::NamedRange
+        AST::NamedRef.new(token.name)
+      when Tokens::ArrayConstant
+        # Parse array elements from the array content
+        element_strs = token.parse_elements
+        elements = Array(AST::Node).new
+
+        element_strs.each do |elem_str|
+          # Try to parse each element as a sub-expression
+          elem_str = elem_str.strip
+
+          # Skip empty elements
+          if elem_str.empty?
+            next
+          end
+
+          # Parse the element as a mini-formula
+          begin
+            elem_ast = Sheety.parse_to_ast("=#{elem_str}")
+            elements << elem_ast
+          rescue ex : Sheety::FormulaError
+            # If parsing fails, create a placeholder
+            # Check if it's a number
+            if elem_str =~ /^-?\d+(\.\d+)?$/
+              elements << AST::Number.new(elem_str.to_f)
+            elsif elem_str =~ /^".*"$/
+              # String
+              str_value = elem_str[1..-2]? || elem_str
+              elements << AST::StringLiteral.new(str_value)
+            elsif elem_str.upcase == "TRUE"
+              elements << AST::Boolean.new(true)
+            elsif elem_str.upcase == "FALSE"
+              elements << AST::Boolean.new(false)
+            else
+              # Treat as cell reference or named range
+              elements << AST::CellRef.new(elem_str)
+            end
+          end
+        end
+
+        # If no elements were parsed, use a placeholder
+        if elements.empty?
+          elements << AST::CellRef.new("")
+        end
+
+        AST::ArrayConstant.new(elements.map(&.as(AST::Node)))
+      when Tokens::EmptyOperand
+        AST::CellRef.new("")
       else
-        # For other operand types (ranges, references), create a placeholder
-        # This will be implemented when we add those features
+        # For other operand types, create a placeholder
         AST::CellRef.new(token.name)
       end
     end
