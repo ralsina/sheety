@@ -291,38 +291,7 @@ Croupier::TaskManager.set("Sheet2!A1", "100.0")
       
 
 
-# Execute all tasks
-puts "=== Executing Croupier Tasks ==="
-Croupier::TaskManager.run_tasks
-
-# Display results as sheets
-puts ""
-puts "=== Spreadsheet Results ==="
-puts ""
-
-  # Sheet: Sheet1
-  sheet_Sheet1_data = [
-            {cell: "A4", formula: "=SUM(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A4") || "(empty)"},
-          {cell: "A5", formula: "=AVERAGE(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A5") || "(empty)"},
-          {cell: "B3", formula: "=CONCAT(B1,\" \",B2)", value: Croupier::TaskManager.get("Sheet1!B3") || "(empty)"},
-          {cell: "C3", formula: "=IF(C1>C2,\"Yes\",\"No\")", value: Croupier::TaskManager.get("Sheet1!C3") || "(empty)"},
-          {cell: "D1", formula: "=MAX(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D1") || "(empty)"},
-          {cell: "D2", formula: "=MIN(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D2") || "(empty)"},
-          {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet1!A1") || "(empty)"},
-          {cell: "A2", formula: "", value: Croupier::TaskManager.get("Sheet1!A2") || "(empty)"},
-          {cell: "A3", formula: "", value: Croupier::TaskManager.get("Sheet1!A3") || "(empty)"},
-          {cell: "B1", formula: "", value: Croupier::TaskManager.get("Sheet1!B1") || "(empty)"},
-          {cell: "B2", formula: "", value: Croupier::TaskManager.get("Sheet1!B2") || "(empty)"},
-          {cell: "C1", formula: "", value: Croupier::TaskManager.get("Sheet1!C1") || "(empty)"},
-          {cell: "C2", formula: "", value: Croupier::TaskManager.get("Sheet1!C2") || "(empty)"}
-          ]
-
-  # Sheet: Sheet2
-  sheet_Sheet2_data = [
-            {cell: "A2", formula: "=Sheet1!A4*2", value: Croupier::TaskManager.get("Sheet2!A2") || "(empty)"},
-          {cell: "A3", formula: "=SUM(Sheet1!A1:A2)", value: Croupier::TaskManager.get("Sheet2!A3") || "(empty)"},
-          {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet2!A1") || "(empty)"}
-          ]
+# Helper functions
 
 # Helper function to convert column number to letters
 def col_num_to_letter(num)
@@ -397,6 +366,101 @@ def print_sheet(data, sheet_name)
   puts ""
 end
 
-  print_sheet(sheet_Sheet1_data, "Sheet1")
-  print_sheet(sheet_Sheet2_data, "Sheet2")
+
+# Initial run
+puts "=== Executing Croupier Tasks ==="
+Croupier::TaskManager.run_tasks
+
+# Display results
+refresh_display
+
+# Interactive REPL
 puts ""
+puts "=== Interactive Mode ==="
+puts "Enter cell assignments (e.g., A1=123, Sheet2!B5=hello)"
+puts "Commands: 'quit' or 'exit' to quit, 'show' to refresh display"
+puts ""
+
+loop do
+  print "> "
+  input = gets
+
+  break if input.nil? || input.blank?
+
+  input = input.strip
+
+  # Check for commands
+  case input
+  when "quit", "exit"
+    puts "Goodbye!"
+    break
+  when "show", "refresh"
+    refresh_display
+    next
+  end
+
+  # Parse cell assignment
+  if match = input.match(/^([A-Za-z0-9!]+)=(.*)$/)
+    cell_ref = match[1]
+    value = match[2]
+
+    # Add sheet prefix if not present (default to Sheet1)
+    full_ref = cell_ref.includes?("!") ? cell_ref : "Sheet1!" + cell_ref
+
+    # Try to parse as number, otherwise treat as string
+    parsed_value = begin
+      if value.includes?(".")
+        value.to_f
+      else
+        value.to_i
+      end
+    rescue
+      value
+    end
+
+    # Set the value
+    Croupier::TaskManager.set(full_ref, parsed_value.to_s)
+    puts "Set " + full_ref + " = " + parsed_value.to_s
+
+    # Run affected tasks
+    Croupier::TaskManager.run_tasks
+
+    # Refresh display
+    refresh_display
+  else
+    puts "Invalid format. Use: CELL=VALUE (e.g., A1=123, B2=hello)"
+  end
+end
+
+def refresh_display
+  # Collect current cell data
+    sheet_Sheet1_data = [
+            {cell: "A4", formula: "=SUM(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A4") || "(empty)"},
+          {cell: "A5", formula: "=AVERAGE(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A5") || "(empty)"},
+          {cell: "B3", formula: "=CONCAT(B1,\" \",B2)", value: Croupier::TaskManager.get("Sheet1!B3") || "(empty)"},
+          {cell: "C3", formula: "=IF(C1>C2,\"Yes\",\"No\")", value: Croupier::TaskManager.get("Sheet1!C3") || "(empty)"},
+          {cell: "D1", formula: "=MAX(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D1") || "(empty)"},
+          {cell: "D2", formula: "=MIN(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D2") || "(empty)"},
+          {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet1!A1") || "(empty)"},
+          {cell: "A2", formula: "", value: Croupier::TaskManager.get("Sheet1!A2") || "(empty)"},
+          {cell: "A3", formula: "", value: Croupier::TaskManager.get("Sheet1!A3") || "(empty)"},
+          {cell: "B1", formula: "", value: Croupier::TaskManager.get("Sheet1!B1") || "(empty)"},
+          {cell: "B2", formula: "", value: Croupier::TaskManager.get("Sheet1!B2") || "(empty)"},
+          {cell: "C1", formula: "", value: Croupier::TaskManager.get("Sheet1!C1") || "(empty)"},
+          {cell: "C2", formula: "", value: Croupier::TaskManager.get("Sheet1!C2") || "(empty)"}
+          ]
+
+  sheet_Sheet2_data = [
+            {cell: "A2", formula: "=Sheet1!A4*2", value: Croupier::TaskManager.get("Sheet2!A2") || "(empty)"},
+          {cell: "A3", formula: "=SUM(Sheet1!A1:A2)", value: Croupier::TaskManager.get("Sheet2!A3") || "(empty)"},
+          {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet2!A1") || "(empty)"}
+          ]
+
+  # Print all sheets
+  puts ""
+  puts "=== Spreadsheet Results ==="
+  puts ""
+
+    print_sheet(sheet_Sheet1_data, "Sheet1")
+  print_sheet(sheet_Sheet2_data, "Sheet2")
+end

@@ -34,7 +34,9 @@
       "Bash(echo:*)",
       "Bash(./examples/test_sheet:*)",
       "Bash(./test_sheet:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(ameba:*)",
+      "Bash(grep:*)"
     ]
   }
 }

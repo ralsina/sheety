@@ -25,7 +25,7 @@ module Sheety
     private def self.handle_compile(filename : String, extra_args : Array(String))
       unless filename
         STDERR.puts "Error: No input file specified"
-        STDERR.puts "Usage: sheety compile <input.yaml> [output.cr] [binary_name]"
+        STDERR.puts "Usage: sheety compile <input.yaml> [output.cr] [--no-interactive]"
         exit 1
       end
 
@@ -36,9 +36,11 @@ module Sheety
 
       yaml_content = File.read(filename)
 
+      # Check for --no-interactive flag to disable interactive mode
+      interactive = !extra_args.includes?("--no-interactive")
+
       # Generate output filename if not specified
       output_cr = extra_args[0]? || filename.gsub(/\.yaml$/, ".cr")
-      binary_name = extra_args[1]? || output_cr.gsub(/\.cr$/, "")
 
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
@@ -63,7 +65,7 @@ module Sheety
       end
 
       # Generate Croupier task source code with initial values
-      source_code = generator.generate_source(initial_values)
+      source_code = generator.generate_source(initial_values, interactive)
 
       if source_code.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
@@ -74,8 +76,13 @@ module Sheety
       File.write(output_cr, source_code)
 
       puts "Generated Croupier task file: #{output_cr}"
-      puts ""
-      puts "Compile with: crystal build #{output_cr}"
+      if interactive
+        puts ""
+        puts "Compile and run with: crystal build #{output_cr} && ./#{File.basename(output_cr, ".cr")}"
+      else
+        puts ""
+        puts "Compile with: crystal build #{output_cr}"
+      end
     end
 
     private def self.handle_evaluate(command : String, filename : String?)
@@ -227,11 +234,11 @@ module Sheety
 
         Commands:
           sheety <file.yaml>           Evaluate and print spreadsheet
-          sheety compile <file.yaml>   Compile spreadsheet to standalone binary
+          sheety compile <file.yaml>   Compile spreadsheet to standalone binary (interactive mode by default)
 
         Compile options:
           [output.cr]                 Generated Crystal source file (default: input.yaml -> input.cr)
-          [binary_name]               Compiled binary name (default: based on .cr file)
+          --no-interactive             Generate non-interactive binary (runs once and exits)
 
         YAML Format:
           SheetName:
