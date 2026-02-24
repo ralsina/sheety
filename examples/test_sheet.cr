@@ -300,28 +300,23 @@ puts ""
 puts "=== Spreadsheet Results ==="
 puts ""
 
-# Get all cell values
-cell_values = {
-  "Sheet1!A4" => Croupier::TaskManager.get("Sheet1!A4"),
-  "Sheet1!A5" => Croupier::TaskManager.get("Sheet1!A5"),
-  "Sheet1!B3" => Croupier::TaskManager.get("Sheet1!B3"),
-  "Sheet1!C3" => Croupier::TaskManager.get("Sheet1!C3"),
-  "Sheet1!D1" => Croupier::TaskManager.get("Sheet1!D1"),
-  "Sheet1!D2" => Croupier::TaskManager.get("Sheet1!D2"),
-  "Sheet2!A2" => Croupier::TaskManager.get("Sheet2!A2"),
-  "Sheet2!A3" => Croupier::TaskManager.get("Sheet2!A3")
-}
-
 # Create table data
-table_data = cell_values.map do |key, value|
-  sheet, cell = key.split("!", 2)
-  {sheet: sheet, cell: cell, value: value || "(empty)"}
-end
+table_data = [
+  {sheet: "Sheet1", cell: "A4", formula: "=SUM(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A4") || "(empty)"},
+  {sheet: "Sheet1", cell: "A5", formula: "=AVERAGE(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A5") || "(empty)"},
+  {sheet: "Sheet1", cell: "B3", formula: "=CONCAT(B1,\" \",B2)", value: Croupier::TaskManager.get("Sheet1!B3") || "(empty)"},
+  {sheet: "Sheet1", cell: "C3", formula: "=IF(C1>C2,\"Yes\",\"No\")", value: Croupier::TaskManager.get("Sheet1!C3") || "(empty)"},
+  {sheet: "Sheet1", cell: "D1", formula: "=MAX(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D1") || "(empty)"},
+  {sheet: "Sheet1", cell: "D2", formula: "=MIN(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D2") || "(empty)"},
+  {sheet: "Sheet2", cell: "A2", formula: "=Sheet1!A4*2", value: Croupier::TaskManager.get("Sheet2!A2") || "(empty)"},
+  {sheet: "Sheet2", cell: "A3", formula: "=SUM(Sheet1!A1:A2)", value: Croupier::TaskManager.get("Sheet2!A3") || "(empty)"}
+]
 
 # Create and print table
 table = Tablo::Table.new(table_data) do |t|
   t.add_column(:sheet, header: "Sheet") { |d| d[:sheet] }
   t.add_column(:cell, header: "Cell") { |d| d[:cell] }
+  t.add_column(:formula, header: "Formula") { |d| d[:formula] }
   t.add_column(:value, header: "Value") { |d| d[:value] }
 end
 

@@ -174,11 +174,13 @@ module Sheety
       # Get all unique cells (both initial values and formulas)
       all_cells = (@formulas.keys.to_a).sort
 
-      # Generate table data
-      table_data = all_cells.map do |key|
+      # Generate table data directly
+      rows = all_cells.map do |key|
         sheet, cell = key.split("!", 2)
-        {sheet: sheet, cell: cell, key: key}
-      end
+        info = @formulas[key]
+        formula = info ? info.formula : ""
+        "  {sheet: #{sheet.inspect}, cell: #{cell.inspect}, formula: #{formula.inspect}, value: Croupier::TaskManager.get(#{key.inspect}) || \"(empty)\"}"
+      end.join(",\n")
 
       # Generate code to display results in a table
       %{
@@ -191,23 +193,16 @@ puts ""
 puts "=== Spreadsheet Results ==="
 puts ""
 
-# Get all cell values
-cell_values = {
-#{all_cells.map do |key|
-  "  #{key.inspect} => Croupier::TaskManager.get(#{key.inspect})"
-end.join(",\n")}
-}
-
 # Create table data
-table_data = cell_values.map do |key, value|
-  sheet, cell = key.split("!", 2)
-  {sheet: sheet, cell: cell, value: value || "(empty)"}
-end
+table_data = [
+#{rows}
+]
 
 # Create and print table
 table = Tablo::Table.new(table_data) do |t|
   t.add_column(:sheet, header: "Sheet") { |d| d[:sheet] }
   t.add_column(:cell, header: "Cell") { |d| d[:cell] }
+  t.add_column(:formula, header: "Formula") { |d| d[:formula] }
   t.add_column(:value, header: "Value") { |d| d[:value] }
 end
 
