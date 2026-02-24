@@ -46,12 +46,21 @@ module Sheety
 
     # Helper to extract numeric values from cell values, ignoring errors and non-numeric values
     private def self.extract_numbers(values : Array(CellValue)) : Array(Float64)
-      values.compact_map do |v|
+      result = [] of Float64
+      values.each do |v|
         case v
-        when Float64 then v
-        else              nil
+        when Float64
+          result << v
+        when String
+          # Try to convert string to number
+          begin
+            result << v.to_f
+          rescue
+            # Skip non-numeric strings
+          end
         end
       end
+      result
     end
 
     # Helper to extract all values excluding errors
@@ -73,7 +82,7 @@ module Sheety
     end
 
     # Helper to convert cell value to float
-    private def self.to_float(value : CellValue) : Float64?
+    def self.to_float(value : CellValue) : Float64?
       case value
       when Float64 then value
       when String

@@ -142,9 +142,16 @@ module Sheety
         "Sheety::Functions.ge(#{left}, #{right})"
       when "&"
         "Sheety::Functions.to_string(#{left}) + Sheety::Functions.to_string(#{right})"
-      when "+", "-", "*", "/", "^"
-        # Wrap both operands to ensure proper precedence
-        "((#{left}) #{node.operator} (#{right}))"
+      when "+"
+        "begin; ln = Sheety::Functions.to_float(#{left}); rn = Sheety::Functions.to_float(#{right}); (ln && rn) ? (ln + rn).to_s : nil; end"
+      when "-"
+        "begin; ln = Sheety::Functions.to_float(#{left}); rn = Sheety::Functions.to_float(#{right}); (ln && rn) ? (ln - rn).to_s : nil; end"
+      when "*"
+        "begin; ln = Sheety::Functions.to_float(#{left}); rn = Sheety::Functions.to_float(#{right}); (ln && rn) ? (ln * rn).to_s : nil; end"
+      when "/"
+        "begin; ln = Sheety::Functions.to_float(#{left}); rn = Sheety::Functions.to_float(#{right}); (ln && rn) ? (ln / rn).to_s : nil; end"
+      when "^"
+        "begin; ln = Sheety::Functions.to_float(#{left}); rn = Sheety::Functions.to_float(#{right}); (ln && rn) ? (ln ** rn).to_s : nil; end"
       else
         "((#{left}) #{node.operator} (#{right}))"
       end

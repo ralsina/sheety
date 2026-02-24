@@ -1,0 +1,40 @@
+# Example spreadsheet file for Sheety
+# Cells can have:
+# - value: a literal value (number, string, boolean)
+# - formula: an Excel formula starting with =
+
+Sheet1:
+  A1:
+    value: 10
+  A2:
+    value: 20
+  A3:
+    value: 30
+  A4:
+    formula: "=SUM(A1:A3)"
+  A5:
+    formula: "=AVERAGE(A1:A3)"
+  B1:
+    value: "Hello"
+  B2:
+    value: "World"
+  B3:
+    formula: "=CONCAT(B1,\" \",B2)"
+  C1:
+    value: 5
+  C2:
+    value: 3
+  C3:
+    formula: "=IF(C1>C2,\"Yes\",\"No\")"
+  D1:
+    formula: "=MAX(A1:A3)"
+  D2:
+    formula: "=MIN(A1:A3)"
+
+Sheet2:
+  A1:
+    value: 100
+  A2:
+    formula: "=Sheet1!A4*2"
+  A3:
+    formula: "=SUM(Sheet1!A1:A2)"

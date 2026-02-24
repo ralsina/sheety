@@ -1,5 +1,5 @@
 require "yaml"
-require "./standalone_generator"
+require "./croupier_generator"
 
 module Sheety
   class CLI
@@ -40,9 +40,30 @@ module Sheety
       output_cr = extra_args[0]? || filename.gsub(/\.yaml$/, ".cr")
       binary_name = extra_args[1]? || output_cr.gsub(/\.cr$/, "")
 
-      # Generate the Crystal source file
-      generator = StandaloneGenerator.new
-      source_code = generator.generate_source(yaml_content, binary_name)
+      # Generate the Crystal source file using CroupierGenerator
+      generator = CroupierGenerator.new
+
+      # Load YAML and add all formulas and initial values
+      data = YAML.parse(yaml_content)
+      initial_values = Hash(String, Float64 | String | Bool).new
+
+      data.as_h.each do |sheet_name, sheet_data|
+        sheet_data.as_h.each do |cell_ref, cell_data|
+          cell_data = cell_data.as_h
+          key = "#{sheet_name}!#{cell_ref}"
+
+          if cell_data.has_key?("formula")
+            formula = cell_data["formula"].to_s
+            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
+          elsif cell_data.has_key?("value")
+            value = parse_value(cell_data["value"])
+            initial_values[key] = value
+          end
+        end
+      end
+
+      # Generate Croupier task source code with initial values
+      source_code = generator.generate_source(initial_values)
 
       if source_code.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
@@ -52,25 +73,9 @@ module Sheety
       # Write the source file
       File.write(output_cr, source_code)
 
-      puts "Generated Crystal source: #{output_cr}"
-
-      # Make it executable
-      File.chmod(output_cr, 0o755)
-
-      # Compile the binary
-      puts "Compiling to #{binary_name}..."
-      compile_result = Process.new("crystal", ["build", output_cr, "-o", binary_name])
-      status = compile_result.wait
-
-      if status.success?
-        puts "Successfully compiled to: #{binary_name}"
-        puts ""
-        puts "Run the binary with: ./#{binary_name}"
-      else
-        STDERR.puts "Compilation failed. You can compile manually with:"
-        STDERR.puts "  crystal build #{output_cr}"
-        exit 1
-      end
+      puts "Generated Croupier task file: #{output_cr}"
+      puts ""
+      puts "Compile with: crystal build #{output_cr}"
     end
 
     private def self.handle_evaluate(command : String, filename : String?)

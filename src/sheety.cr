@@ -11,7 +11,6 @@ require "./sheety/evaluator"
 require "./sheety/code_generator"
 require "./sheety/dependency_extractor"
 require "./sheety/croupier_generator"
-require "./sheety/standalone_generator"
 require "./sheety/cli"
 
 # TODO: Write documentation for `Sheety`
