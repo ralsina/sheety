@@ -295,30 +295,108 @@ Croupier::TaskManager.set("Sheet2!A1", "100.0")
 puts "=== Executing Croupier Tasks ==="
 Croupier::TaskManager.run_tasks
 
-# Display results in a table
+# Display results as sheets
 puts ""
 puts "=== Spreadsheet Results ==="
 puts ""
 
-# Create table data
-table_data = [
-  {sheet: "Sheet1", cell: "A4", formula: "=SUM(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A4") || "(empty)"},
-  {sheet: "Sheet1", cell: "A5", formula: "=AVERAGE(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A5") || "(empty)"},
-  {sheet: "Sheet1", cell: "B3", formula: "=CONCAT(B1,\" \",B2)", value: Croupier::TaskManager.get("Sheet1!B3") || "(empty)"},
-  {sheet: "Sheet1", cell: "C3", formula: "=IF(C1>C2,\"Yes\",\"No\")", value: Croupier::TaskManager.get("Sheet1!C3") || "(empty)"},
-  {sheet: "Sheet1", cell: "D1", formula: "=MAX(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D1") || "(empty)"},
-  {sheet: "Sheet1", cell: "D2", formula: "=MIN(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D2") || "(empty)"},
-  {sheet: "Sheet2", cell: "A2", formula: "=Sheet1!A4*2", value: Croupier::TaskManager.get("Sheet2!A2") || "(empty)"},
-  {sheet: "Sheet2", cell: "A3", formula: "=SUM(Sheet1!A1:A2)", value: Croupier::TaskManager.get("Sheet2!A3") || "(empty)"}
-]
+  # Sheet: Sheet1
+  sheet_Sheet1_data = [
+            {cell: "A4", formula: "=SUM(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A4") || "(empty)"},
+          {cell: "A5", formula: "=AVERAGE(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A5") || "(empty)"},
+          {cell: "B3", formula: "=CONCAT(B1,\" \",B2)", value: Croupier::TaskManager.get("Sheet1!B3") || "(empty)"},
+          {cell: "C3", formula: "=IF(C1>C2,\"Yes\",\"No\")", value: Croupier::TaskManager.get("Sheet1!C3") || "(empty)"},
+          {cell: "D1", formula: "=MAX(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D1") || "(empty)"},
+          {cell: "D2", formula: "=MIN(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D2") || "(empty)"},
+          {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet1!A1") || "(empty)"},
+          {cell: "A2", formula: "", value: Croupier::TaskManager.get("Sheet1!A2") || "(empty)"},
+          {cell: "A3", formula: "", value: Croupier::TaskManager.get("Sheet1!A3") || "(empty)"},
+          {cell: "B1", formula: "", value: Croupier::TaskManager.get("Sheet1!B1") || "(empty)"},
+          {cell: "B2", formula: "", value: Croupier::TaskManager.get("Sheet1!B2") || "(empty)"},
+          {cell: "C1", formula: "", value: Croupier::TaskManager.get("Sheet1!C1") || "(empty)"},
+          {cell: "C2", formula: "", value: Croupier::TaskManager.get("Sheet1!C2") || "(empty)"}
+          ]
 
-# Create and print table
-table = Tablo::Table.new(table_data) do |t|
-  t.add_column(:sheet, header: "Sheet") { |d| d[:sheet] }
-  t.add_column(:cell, header: "Cell") { |d| d[:cell] }
-  t.add_column(:formula, header: "Formula") { |d| d[:formula] }
-  t.add_column(:value, header: "Value") { |d| d[:value] }
+  # Sheet: Sheet2
+  sheet_Sheet2_data = [
+            {cell: "A2", formula: "=Sheet1!A4*2", value: Croupier::TaskManager.get("Sheet2!A2") || "(empty)"},
+          {cell: "A3", formula: "=SUM(Sheet1!A1:A2)", value: Croupier::TaskManager.get("Sheet2!A3") || "(empty)"},
+          {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet2!A1") || "(empty)"}
+          ]
+
+# Helper function to convert column number to letters
+def col_num_to_letter(num)
+  result = ""
+  while num > 0
+    num -= 1
+    result = ('A' + (num % 26)).to_s + result
+    num //= 26
+  end
+  result
 end
 
-puts table
+def print_sheet(data, sheet_name)
+  # Find the grid dimensions
+  max_col = 0
+  max_row = 0
+
+  data.each do |cell|
+    if match = cell[:cell].match(/^([A-Z]+)(\d+)$/)
+      col = match[1]
+      row = match[2].to_i
+
+      # Convert column to number for comparison
+      col_num = 0
+      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
+
+      max_col = col_num if col_num > max_col
+      max_row = row if row > max_row
+    end
+  end
+
+  # Create a 2D grid
+  grid = Array.new(max_row) { Array.new(max_col, "") }
+
+  # Fill the grid
+  data.each do |cell|
+    if match = cell[:cell].match(/^([A-Z]+)(\d+)$/)
+      col = match[1]
+      row = match[2].to_i - 1  # Convert to 0-indexed
+
+      # Convert column to number
+      col_num = 0
+      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
+
+      value = cell[:value]
+      formula = cell[:formula]
+
+      # Display: if there's a formula, show it, otherwise just the value
+      display = formula.empty? ? value : formula + " -> " + value
+
+      grid[row][col_num - 1] = display
+    end
+  end
+
+  # Build column headers (A, B, C, ...)
+  column_headers = (1..max_col).map { |i| col_num_to_letter(i) }
+
+  # Build table data with row numbers
+  table_data = (0...max_row).map do |row_idx|
+    [row_idx + 1] + grid[row_idx]
+  end
+
+  # Create and print the table using Tablo
+  table = Tablo::Table.new(table_data) do |t|
+    t.add_column("Row", &.[](0).to_s)
+    (1..max_col).each do |col_idx|
+      t.add_column(column_headers[col_idx - 1], &.[](col_idx).to_s)
+    end
+  end
+
+  puts table
+  puts ""
+end
+
+  print_sheet(sheet_Sheet1_data, "Sheet1")
+  print_sheet(sheet_Sheet2_data, "Sheet2")
 puts ""

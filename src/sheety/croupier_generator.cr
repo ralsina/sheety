@@ -77,11 +77,8 @@ module Sheety
       # Extract dependencies
       dependencies = @extractor.extract(ast, info.sheet)
 
-      # Generate the proc code
-      proc_body = @generator.generate_proc_body(formula, CodeGenerator::Context.new(info.sheet))
-
       # Create the proc
-      proc = ->{
+      proc = -> {
         begin
           # Eval the generated code
           # Note: We need to use a different approach since Crystal doesn't have eval
@@ -109,7 +106,7 @@ module Sheety
 
     # Create a task for an invalid formula
     private def create_error_task(info : FormulaInfo) : Nil
-      proc = ->{ "#VALUE!" }
+      proc = -> { "#VALUE!" }
       task_id = "formula_#{sanitize_key(info.key)}"
 
       Croupier::Task.new(
@@ -144,7 +141,7 @@ module Sheety
       end
 
       # Finally, run the tasks and print results as a table
-      source += generate_execution_code
+      source += generate_execution_code(initial_values)
 
       source
     end
@@ -153,10 +150,10 @@ module Sheety
     private def generate_setup_code(initial_values : Hash(String, Float64 | String | Bool)) : String
       value_assignments = initial_values.map do |key, value|
         value_str = case value
-                    when Float64 then value.to_s.inspect  # Wrap in quotes
-                    when String then value.inspect
-                    when Bool then value.to_s
-                    else "\"\""
+                    when Float64 then value.to_s.inspect # Wrap in quotes
+                    when String  then value.inspect
+                    when Bool    then value.to_s
+                    else              "\"\""
                     end
         "Croupier::TaskManager.set(#{key.inspect}, #{value_str})"
       end.join("\n")
@@ -170,43 +167,142 @@ module Sheety
     end
 
     # Generate code to execute tasks and print results
-    private def generate_execution_code : String
-      # Get all unique cells (both initial values and formulas)
-      all_cells = (@formulas.keys.to_a).sort
+    private def generate_execution_code(initial_values : Hash(String, Float64 | String | Bool)) : String
+      # Group cells by sheet and organize in grid
+      sheets_data = {} of String => Hash(String, Hash(String, String))
 
-      # Generate table data directly
-      rows = all_cells.map do |key|
-        sheet, cell = key.split("!", 2)
-        info = @formulas[key]
-        formula = info ? info.formula : ""
-        "  {sheet: #{sheet.inspect}, cell: #{cell.inspect}, formula: #{formula.inspect}, value: Croupier::TaskManager.get(#{key.inspect}) || \"(empty)\"}"
-      end.join(",\n")
+      # Add formula cells
+      @formulas.each do |key, info|
+        parts = key.split("!", 2)
+        sheet = parts.size > 1 ? parts[0] : "" # Use empty string for default sheet
+        cell = parts.size > 1 ? parts[1] : parts[0]
 
-      # Generate code to display results in a table
+        sheets_data[sheet] ||= Hash(String, Hash(String, String)).new
+        sheets_data[sheet][cell] = {"formula" => info.formula}
+      end
+
+      # Add initial value cells (that don't have formulas)
+      initial_values.each do |key, _|
+        parts = key.split("!", 2)
+        sheet = parts.size > 1 ? parts[0] : ""
+        cell = parts.size > 1 ? parts[1] : parts[0]
+
+        sheets_data[sheet] ||= Hash(String, Hash(String, String)).new
+        # Only add if there's no formula already
+        unless sheets_data[sheet][cell]?
+          sheets_data[sheet][cell] = {"formula" => ""}
+        end
+      end
+
+      # Generate code to collect all cell data per sheet
+      sheet_collection_code = sheets_data.map do |sheet, cells|
+        sheet_display_name = sheet.empty? ? "(default)" : sheet
+        sheet_var_name = sheet.empty? ? "default" : sheet.gsub(/[^a-zA-Z0-9]/, "_")
+        sheet_key_prefix = sheet.empty? ? "" : "#{sheet}!"
+
+        cells_array = cells.map do |cell, data|
+          "{cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: Croupier::TaskManager.get(\"#{sheet_key_prefix}#{cell}\") || \"(empty)\"}"
+        end.join(",\n          ")
+
+        "  # Sheet: #{sheet_display_name}
+  sheet_#{sheet_var_name}_data = [
+            #{cells_array}
+          ]"
+      end.join("\n\n")
+
+      sheet_print_code = sheets_data.keys.sort!.map do |sheet|
+        sheet_var_name = sheet.empty? ? "default" : sheet.gsub(/[^a-zA-Z0-9]/, "_")
+        sheet_display_name = sheet.empty? ? "(default)" : sheet
+        "  print_sheet(sheet_#{sheet_var_name}_data, #{sheet_display_name.inspect})"
+      end.join("\n")
+
+      # Generate code to display results in a sheet layout
       %{
 # Execute all tasks
 puts "=== Executing Croupier Tasks ==="
 Croupier::TaskManager.run_tasks
 
-# Display results in a table
+# Display results as sheets
 puts ""
 puts "=== Spreadsheet Results ==="
 puts ""
 
-# Create table data
-table_data = [
-#{rows}
-]
+#{sheet_collection_code}
 
-# Create and print table
-table = Tablo::Table.new(table_data) do |t|
-  t.add_column(:sheet, header: "Sheet") { |d| d[:sheet] }
-  t.add_column(:cell, header: "Cell") { |d| d[:cell] }
-  t.add_column(:formula, header: "Formula") { |d| d[:formula] }
-  t.add_column(:value, header: "Value") { |d| d[:value] }
+# Helper function to convert column number to letters
+def col_num_to_letter(num)
+  result = ""
+  while num > 0
+    num -= 1
+    result = ('A' + (num % 26)).to_s + result
+    num //= 26
+  end
+  result
 end
 
-puts table
+def print_sheet(data, sheet_name)
+  # Find the grid dimensions
+  max_col = 0
+  max_row = 0
+
+  data.each do |cell|
+    if match = cell[:cell].match(/^([A-Z]+)(\\d+)$/)
+      col = match[1]
+      row = match[2].to_i
+
+      # Convert column to number for comparison
+      col_num = 0
+      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
+
+      max_col = col_num if col_num > max_col
+      max_row = row if row > max_row
+    end
+  end
+
+  # Create a 2D grid
+  grid = Array.new(max_row) { Array.new(max_col, "") }
+
+  # Fill the grid
+  data.each do |cell|
+    if match = cell[:cell].match(/^([A-Z]+)(\\d+)$/)
+      col = match[1]
+      row = match[2].to_i - 1  # Convert to 0-indexed
+
+      # Convert column to number
+      col_num = 0
+      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
+
+      value = cell[:value]
+      formula = cell[:formula]
+
+      # Display: if there's a formula, show it, otherwise just the value
+      display = formula.empty? ? value : formula + " -> " + value
+
+      grid[row][col_num - 1] = display
+    end
+  end
+
+  # Build column headers (A, B, C, ...)
+  column_headers = (1..max_col).map { |i| col_num_to_letter(i) }
+
+  # Build table data with row numbers
+  table_data = (0...max_row).map do |row_idx|
+    [row_idx + 1] + grid[row_idx]
+  end
+
+  # Create and print the table using Tablo
+  table = Tablo::Table.new(table_data) do |t|
+    t.add_column("Row", &.[](0).to_s)
+    (1..max_col).each do |col_idx|
+      t.add_column(column_headers[col_idx - 1], &.[](col_idx).to_s)
+    end
+  end
+
+  puts table
+  puts ""
+end
+
+#{sheet_print_code}
 puts ""
 }
     end
@@ -231,7 +327,7 @@ puts ""
 
       # Extract dependencies - these are the inputs
       # Add kv:// prefix for k/v store keys
-      dependencies = @extractor.extract(ast, info.sheet).map { |d| "kv://#{d}" }.to_a
+      dependencies = @extractor.extract(ast, info.sheet).map { |dep| "kv://#{dep}" }.to_a
 
       # Generate the calculation code
       calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
