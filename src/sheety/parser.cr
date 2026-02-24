@@ -43,16 +43,16 @@ module Sheety
       # Token filters in order of priority
       filters = [
         Tokens::ErrorToken,
-        Tokens::ArrayConstant,       # Must come before Function for {...}
+        Tokens::ArrayConstant, # Must come before Function for {...}
         Tokens::StringToken,
         Tokens::Boolean,
-        Tokens::Function,      # Must come before other tokens that start with letters
-        Tokens::NamedRange,    # Must come before Range to distinguish from cell refs
-        Tokens::Range,         # Must come before Number to match ranges like 1:10
+        Tokens::Function,   # Must come before other tokens that start with letters
+        Tokens::NamedRange, # Must come before Range to distinguish from cell refs
+        Tokens::Range,      # Must come before Number to match ranges like 1:10
         Tokens::Number,
         Tokens::ArgumentSeparator, # For function argument commas
         Tokens::ComparisonOperator,
-        Tokens::ConcatOperator,     # Text concatenation (&)
+        Tokens::ConcatOperator, # Text concatenation (&)
         Tokens::ArithmeticOperator,
         Tokens::PercentOperator,
         Tokens::ColonOperator,

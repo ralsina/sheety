@@ -37,8 +37,13 @@ module Sheety
       end
 
       def ast(tokens : Array(Token), stack : Array(Token), builder : AstBuilder) : Nil
-        # Just add to tokens, don't affect the stack or builder
-        # The parenthesis closing logic will handle splitting arguments
+        # CRITICAL FIX: Process all pending operators on the stack before adding the comma
+        # This ensures that expressions like C1>C2 are evaluated before the comma
+        while stack.size > 0 && stack.last.is_a?(Operator)
+          builder.append(stack.pop)
+        end
+
+        # Then add the comma to tokens for later argument counting
         tokens << self
       end
     end

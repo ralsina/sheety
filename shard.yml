@@ -11,3 +11,7 @@ license: MIT
 targets:
   sheety:
     main: src/sheety.cr
+
+dependencies:
+  croupier:
+    github: ralsina/croupier
