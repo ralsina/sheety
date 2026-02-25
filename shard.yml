@@ -20,3 +20,8 @@ dependencies:
     github: hutou/tablo
   termisu:
     github: omarluq/termisu
+  xlsx-parser:
+    github: d1ceward/xlsx-parser
+    version: ~> 1.4
+  baked_file_system:
+    github: ralsina/baked_file_system

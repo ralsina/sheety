@@ -2,6 +2,39 @@ require "termisu"
 require "yaml"
 
 module Sheety
+  # Notification with level and timestamp
+  struct Notification
+    enum Level
+      Info
+      Warning
+      Error
+
+      def color : Termisu::Color
+        case self
+        in Info    then Termisu::Color.cyan
+        in Warning then Termisu::Color.yellow
+        in Error   then Termisu::Color.red
+        end
+      end
+    end
+
+    getter text : String
+    getter level : Level
+    getter timestamp : Time::Span
+
+    def initialize(@text : String, @level : Level = Level::Info)
+      @timestamp = Time.monotonic
+    end
+
+    def age : Time::Span
+      Time.monotonic - @timestamp
+    end
+
+    def expired?(timeout : Time::Span = 5.seconds) : Bool
+      age > timeout
+    end
+  end
+
   # TUI spreadsheet viewer using Termisu
   class TUI
     @termisu : Termisu
@@ -41,8 +74,7 @@ module Sheety
     @edit_buffer : String = ""
     @edit_cursor : Int32 = 0
     @formula_bar_height : Int32 = 1
-    @notification_message : String = ""
-    @notification_timeout : Int32 = 0
+    @notification : Notification?
 
     # Callback for updating cell values
     @value_update_callback : Proc(String, String, String, Nil)?
@@ -50,12 +82,15 @@ module Sheety
     @value_getter_callback : Proc(String, String, String)?
     @save_callback : Proc(Nil)?
     @source_file : String?
+    @sheety_available : Bool
+    @rebuilding : Bool = false
 
     def initialize(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), update_callback : Proc(String, String, String, Nil) = ->(_s : String, _c : String, _v : String) {}, source_file : String? = nil)
       @termisu = Termisu.new
       @sheets = sheets.sort
       @sheet_data = sheet_data
       @source_file = source_file
+      @sheety_available = !!Process.find_executable("sheety")
       @current_sheet_idx = 0
       @active_row = 0
       @active_col = 0
@@ -140,16 +175,23 @@ module Sheety
 
     def run : Nil
       @termisu.hide_cursor
+
+      # Show warning if sheety is not available
+      unless @sheety_available
+        show_notification("Warning: sheety not found - formula editing disabled", Notification::Level::Warning)
+      end
+
       render
 
       loop do
-        # Decrease notification timeout
-        if @notification_timeout > 0
-          @notification_timeout -= 1
-          if @notification_timeout == 0
-            @notification_message = ""
-            render
-          end
+        # Update notification state (auto-clear expired)
+        had_notification = @notification != nil
+        update_notification
+        notification_changed = (@notification != nil) != had_notification
+
+        # Always render while rebuilding to keep notification visible
+        if @rebuilding
+          render
         end
 
         if event = @termisu.poll_event(100)
@@ -157,9 +199,7 @@ module Sheety
           when Termisu::Event::Key
             handle_key_event(event)
             # Clear notification on any key press
-            if @notification_timeout > 0
-              clear_notification
-            end
+            clear_notification
             render if should_render?(event)
           when Termisu::Event::Mouse
             handle_mouse_event(event)
@@ -168,6 +208,9 @@ module Sheety
             handle_resize(event)
             render
           end
+        elsif notification_changed
+          # Re-render if notification state changed (expired/cleared)
+          render
         end
       end
     ensure
@@ -246,6 +289,9 @@ module Sheety
     end
 
     private def handle_normal_key_event(event : Termisu::Event::Key) : Nil
+      # Ignore input while rebuilding
+      return if @rebuilding
+
       case event.key
       when .q?
         @termisu.close
@@ -361,9 +407,9 @@ module Sheety
       # Scroll up or down
       case button
       when Termisu::Event::Mouse::Button::WheelUp
-        move_active(-3, 0)  # Scroll up 3 rows
+        move_active(-3, 0) # Scroll up 3 rows
       when Termisu::Event::Mouse::Button::WheelDown
-        move_active(3, 0)   # Scroll down 3 rows
+        move_active(3, 0) # Scroll down 3 rows
       else
         # Other wheel events (left/right) could scroll horizontally
       end
@@ -495,6 +541,12 @@ module Sheety
     end
 
     private def enter_edit_mode : Nil
+      # Check if trying to edit a formula cell without sheety available
+      if formula_cell? && !@sheety_available
+        show_notification("Cannot edit formulas: sheety not found in PATH", Notification::Level::Error)
+        return
+      end
+
       @edit_mode = true
 
       # For formula cells, edit the formula itself
@@ -509,14 +561,19 @@ module Sheety
       @edit_cursor = @edit_buffer.size
     end
 
-    private def show_notification(message : String, duration : Int32) : Nil
-      @notification_message = message
-      @notification_timeout = duration
+    private def show_notification(message : String, level : Notification::Level = Notification::Level::Info) : Nil
+      @notification = Notification.new(message, level)
     end
 
     private def clear_notification : Nil
-      @notification_message = ""
-      @notification_timeout = 0
+      @notification = nil
+    end
+
+    private def update_notification : Nil
+      # Auto-clear expired notifications
+      if notif = @notification
+        @notification = nil if notif.expired?
+      end
     end
 
     private def save_edit_value : Nil
@@ -527,7 +584,7 @@ module Sheety
       if formula_cell?
         # Validate that it's still a formula (starts with =)
         unless @edit_buffer.starts_with?("=")
-          show_notification("Formula must start with =", 60)
+          show_notification("Formula must start with =", Notification::Level::Warning)
           @edit_mode = false
           @edit_buffer = ""
           @edit_cursor = 0
@@ -537,13 +594,48 @@ module Sheety
         # Save the new formula to YAML
         update_formula_in_yaml(sheet_name, cell_ref, @edit_buffer)
 
-        # Trigger recompile and restart
-        show_notification("Recompiling...", 30)
-        @termisu.render
+        # Trigger self-rebuild by invoking sheety
+        source_file = @source_file
+        if source_file && !source_file.empty?
+          # Check if sheety is available
+          unless Process.find_executable("sheety")
+            show_notification("Cannot rebuild: sheety not found", Notification::Level::Error)
+            @edit_mode = false
+            @edit_buffer = ""
+            @edit_cursor = 0
+            render
+            return
+          end
 
-        # Exit and let the wrapper script recompile
-        @termisu.close
-        exit 42 # Special exit code to signal recompile needed
+          # Show notification
+          show_notification("Rebuilding...", Notification::Level::Info)
+          @edit_mode = false
+          @edit_buffer = ""
+          @edit_cursor = 0
+          render
+
+          # Spawn a fiber to handle rebuild while TUI stays visible
+          @rebuilding = true
+          spawn do
+            null_io = File.open("/dev/null", "w")
+            status = Process.run("sheety", [source_file], output: null_io, error: null_io)
+            null_io.close
+
+            @rebuilding = false
+
+            if status.success?
+              # Rebuild succeeded - close TUI and exit so new binary can launch
+              @termisu.close
+              exit 0
+            else
+              # Rebuild failed - show error
+              show_notification("Rebuild failed", Notification::Level::Error)
+            end
+          end
+        else
+          # Fallback: exit with code 42 if no source file known
+          exit 42
+        end
       else
         # Regular value cell - just update via callback
         if callback = @value_update_callback
@@ -684,7 +776,7 @@ module Sheety
         file.flush
         file.fsync
       end
-      show_notification("Saved to #{source_file}", 30)
+      show_notification("Saved to #{source_file}", Notification::Level::Info)
       @termisu.render
     end
 
@@ -696,37 +788,53 @@ module Sheety
       yaml_content = File.read(source_file)
       data = YAML.parse(yaml_content)
 
-      # Update the formula - iterate through the hash to find the right cell
+      # Build new data structure with updated formula
+      # We need to reconstruct everything since YAML::Any is immutable
+      new_data = {} of YAML::Any => YAML::Any
+      ui_metadata = {} of YAML::Any => YAML::Any
+      ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(@sheets[@current_sheet_idx])
+      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
+      new_data[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
+
+      cell_found = false
+
       data.as_h.each do |sheet_key, sheet_value|
-        if sheet_key.as_s == sheet_name
-          sheet_value.as_h.each do |cell_key, cell_value|
-            if cell_key.as_s == cell_ref
-              # Found the cell - update the formula
-              cell_value.as_h[YAML::Any.new("formula")] = YAML::Any.new(new_formula)
+        next if sheet_key.as_s == "_ui_state"
 
-              # Update UI state to current position
-              current_sheet = @sheets[@current_sheet_idx]
-              ui_metadata = {} of YAML::Any => YAML::Any
-              ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(current_sheet)
-              ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
-              data.as_h[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
+        new_sheet = {} of YAML::Any => YAML::Any
+        sheet_value.as_h.each do |cell_key, cell_value|
+          new_cell = {} of YAML::Any => YAML::Any
 
-              # Write back with explicit flush
-              new_yaml = data.to_yaml
-              File.open(source_file, "w") do |file|
-                file.print(new_yaml)
-                file.flush
-                # Also call fsync to ensure OS writes to disk
-                file.fsync
-              end
-              return
-            end
+          # Copy cell data
+          cell_value.as_h.each do |k, v|
+            new_cell[YAML::Any.new(k.as_s)] = v
           end
+
+          # Update formula if this is the cell
+          if sheet_key.as_s == sheet_name && cell_key.as_s == cell_ref
+            new_cell[YAML::Any.new("formula")] = YAML::Any.new(new_formula)
+            cell_found = true
+          end
+
+          new_sheet[YAML::Any.new(cell_key.as_s)] = YAML::Any.new(new_cell)
         end
+
+        new_data[YAML::Any.new(sheet_key.as_s)] = YAML::Any.new(new_sheet)
       end
 
-      # If we get here, the cell wasn't found
-      show_notification("Error: Could not update formula in YAML", 60)
+      unless cell_found
+        show_notification("Error: Could not find cell in YAML", Notification::Level::Error)
+        return
+      end
+
+      # Write back with explicit flush
+      new_yaml = new_data.to_yaml
+      File.open(source_file, "w") do |file|
+        file.print(new_yaml)
+        file.flush
+        # Also call fsync to ensure OS writes to disk
+        file.fsync
+      end
     end
 
     private def handle_resize(event : Termisu::Event::Resize) : Nil
@@ -887,7 +995,7 @@ module Sheety
 
         # Position actual cursor at edit position
         cursor_x = label.size + @edit_cursor
-        cursor_x = {@grid_width - 1, cursor_x}.min  # Clamp to screen width
+        cursor_x = {@grid_width - 1, cursor_x}.min # Clamp to screen width
         @termisu.set_cursor(cursor_x, formula_y)
       else
         # Normal mode: show formula or value
@@ -933,10 +1041,12 @@ module Sheety
       cell_ref = num_to_col(@active_col + 1) + (@active_row + 1).to_s
 
       # Show notification or normal status text
-      if @notification_timeout > 0
-        status_text = @notification_message
+      if notif = @notification
+        status_text = notif.text
+        status_color = notif.level.color
       else
         status_text = "#{sheet_name}!#{cell_ref}"
+        status_color = @fg_status
       end
 
       # Draw status bar background
@@ -944,20 +1054,21 @@ module Sheety
         @termisu.set_cell(i, status_y, ' ', fg: @fg_status, bg: @bg_status)
       end
 
-      # Draw status text (use different color for notifications)
-      status_color = @notification_timeout > 0 ? Termisu::Color.yellow : @fg_status
+      # Draw status text (use notification color if active)
       status_text.each_char_with_index do |char, i|
         break if i >= @grid_width
         @termisu.set_cell(i, status_y, char, fg: status_color, bg: @bg_status, attr: Termisu::Attribute::Bold)
       end
 
-      # Draw help hints
-      help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Click:Select | DblClick:Edit | Tab:Sheet | S:Save | Q:Quit"
-      help_x = {@grid_width - help_text.size, 0}.max
+      # Draw help hints (only if not showing notification, to avoid overlap)
+      unless notif = @notification
+        help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Click:Select | DblClick:Edit | Tab:Sheet | S:Save | Q:Quit"
+        help_x = {@grid_width - help_text.size, 0}.max
 
-      help_text.each_char_with_index do |char, i|
-        if help_x + i < @grid_width
-          @termisu.set_cell(help_x + i, status_y, char, fg: @fg_status, bg: @bg_status, attr: Termisu::Attribute::Dim)
+        help_text.each_char_with_index do |char, i|
+          if help_x + i < @grid_width
+            @termisu.set_cell(help_x + i, status_y, char, fg: @fg_status, bg: @bg_status, attr: Termisu::Attribute::Dim)
+          end
         end
       end
     end

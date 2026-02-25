@@ -400,7 +400,7 @@ module Sheety
     # COUNTA: Counts how many values are in the list of arguments (non-empty)
     def self.counta(values : Array(CellValue)) : CellValue
       values.reject do |v|
-        v.is_a?(Nil) || (v.is_a?(String) && v.empty?)
+        v.nil? || (v.is_a?(String) && v.empty?)
       end.size.to_f
     end
 
@@ -857,7 +857,7 @@ module Sheety
             when "<=" then val_num <= crit_num
             when "="  then val_num == crit_num
             when "<>" then val_num != crit_num
-            else            false
+            else           false
             end
           else
             # String comparison
@@ -865,7 +865,7 @@ module Sheety
             case operator
             when "="  then val_str == crit_value
             when "<>" then val_str != crit_value
-            else          false
+            else           false
             end
           end
         else
