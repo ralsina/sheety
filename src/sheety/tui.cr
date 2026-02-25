@@ -39,6 +39,7 @@ module Sheety
     # Edit mode
     @edit_mode : Bool = false
     @edit_buffer : String = ""
+    @edit_cursor : Int32 = 0
     @formula_bar_height : Int32 = 1
     @notification_message : String = ""
     @notification_timeout : Int32 = 0
@@ -281,20 +282,43 @@ module Sheety
         # Cancel edit mode
         @edit_mode = false
         @edit_buffer = ""
+        @edit_cursor = 0
       when .enter?
         # Save and exit edit mode
         save_edit_value
         @edit_mode = false
         @edit_buffer = ""
+        @edit_cursor = 0
       when .backspace?
-        # Delete last character
-        @edit_buffer = @edit_buffer[0...-1]
+        # Delete character before cursor
+        if @edit_cursor > 0
+          @edit_buffer = @edit_buffer[0...@edit_cursor - 1] + @edit_buffer[@edit_cursor..]
+          @edit_cursor -= 1
+        end
+      when .delete?
+        # Delete character at cursor
+        if @edit_cursor < @edit_buffer.size
+          @edit_buffer = @edit_buffer[0...@edit_cursor] + @edit_buffer[@edit_cursor + 1..]
+        end
+      when .left?
+        # Move cursor left
+        @edit_cursor = {@edit_cursor - 1, 0}.max
+      when .right?
+        # Move cursor right
+        @edit_cursor = {@edit_cursor + 1, @edit_buffer.size}.min
+      when .home?
+        # Move cursor to start
+        @edit_cursor = 0
+      when .end?
+        # Move cursor to end
+        @edit_cursor = @edit_buffer.size
       else
         # Check if this is a printable character
         if char = event.char
           # Don't include control characters
           if char.printable?
-            @edit_buffer += char
+            @edit_buffer = @edit_buffer[0...@edit_cursor] + char + @edit_buffer[@edit_cursor..]
+            @edit_cursor += 1
           end
         end
       end
@@ -380,6 +404,9 @@ module Sheety
       else
         @edit_buffer = current_cell_value
       end
+
+      # Set cursor to end of buffer
+      @edit_cursor = @edit_buffer.size
     end
 
     private def show_notification(message : String, duration : Int32) : Nil
@@ -403,6 +430,7 @@ module Sheety
           show_notification("Formula must start with =", 60)
           @edit_mode = false
           @edit_buffer = ""
+          @edit_cursor = 0
           return
         end
 
@@ -617,6 +645,14 @@ module Sheety
       render_grid
       render_formula_bar
       render_status
+
+      # Show cursor only in edit mode, hide otherwise
+      if @edit_mode
+        # Cursor already positioned in render_formula_bar
+      else
+        @termisu.hide_cursor
+      end
+
       @termisu.render
     end
 
@@ -748,6 +784,11 @@ module Sheety
           break if x >= @grid_width
           @termisu.set_cell(x, formula_y, char, fg: @fg_active, bg: @bg_default, attr: Termisu::Attribute::Bold)
         end
+
+        # Position actual cursor at edit position
+        cursor_x = label.size + @edit_cursor
+        cursor_x = {@grid_width - 1, cursor_x}.min  # Clamp to screen width
+        @termisu.set_cursor(cursor_x, formula_y)
       else
         # Normal mode: show formula or value
         if formula.empty?
