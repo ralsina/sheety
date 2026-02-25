@@ -75,13 +75,35 @@ module Sheety
       # Write the source file
       File.write(output_cr, source_code)
 
-      puts "Generated Croupier task file: #{output_cr}"
+      # Determine binary name
+      binary_name = File.basename(output_cr, ".cr")
+
+      # Build the binary
+      puts "Building #{binary_name}..."
+      build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+
+      unless build_result.success?
+        STDERR.puts "\nError: Build failed"
+        exit 1
+      end
+
+      puts "Built successfully: #{binary_name}"
+
       if interactive
-        puts ""
-        puts "Compile and run with: crystal build #{output_cr} && ./#{File.basename(output_cr, ".cr")}"
+        puts "\nLaunching TUI..."
+        puts "Press Q to exit\n"
+
+        # Run the binary
+        run_result = Process.run("./#{binary_name}", output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+
+        # If TUI failed (no TTY), show message
+        unless run_result.success?
+          puts "\nNote: TUI requires a terminal. Run './#{binary_name}' in a terminal to view the spreadsheet."
+        end
+
+        exit run_result.exit_code
       else
-        puts ""
-        puts "Compile with: crystal build #{output_cr}"
+        puts "\nRun with: ./#{binary_name}"
       end
     end
 
