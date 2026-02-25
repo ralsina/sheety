@@ -3,6 +3,59 @@ module Sheety
     # Type alias for Excel cell values
     alias CellValue = Float64 | String | Bool | ErrorValue | Nil
 
+    # Helper methods for date operations
+    private struct TimeHelpers
+      # Helper to add years to a Time
+      def self.add_years(time : Time, years : Int32) : Time
+        year = time.year + years
+        month = time.month
+        day = time.day
+
+        # Handle Feb 29 on non-leap years
+        if month == 2 && day == 29 && !leap_year?(year)
+          day = 28
+        end
+
+        Time.utc(year, month, day, 0, 0, 0)
+      end
+
+      # Helper to add months to a Time
+      def self.add_months(time : Time, months : Int32) : Time
+        total_months = time.year * 12 + (time.month - 1) + months
+        new_year = total_months // 12
+        new_month = (total_months % 12) + 1
+
+        day = time.day
+        max_day = utc_days_in_month(new_year, new_month)
+        day = max_day if day > max_day
+
+        Time.utc(new_year, new_month, day, 0, 0, 0)
+      end
+
+      # Check if year is a leap year
+      def self.leap_year?(year : Int32) : Bool
+        (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+      end
+
+      # Get days in month
+      def self.utc_days_in_month(year : Int32, month : Int32) : Int32
+        case month
+        when 1, 3, 5, 7, 8, 10, 12
+          31
+        when 4, 6, 9, 11
+          30
+        when 2
+          leap_year?(year) ? 29 : 28
+        else
+          30
+        end
+      end
+    end
+
+    def self.utc_days_in_month(year : Int32, month : Int32) : Int32
+      TimeHelpers.utc_days_in_month(year, month)
+    end
+
     # Excel error value representation
     struct ErrorValue
       getter error : String
@@ -340,6 +393,587 @@ module Sheety
       else
         0
       end
+    end
+
+    # Additional statistical functions
+
+    # COUNTA: Counts how many values are in the list of arguments (non-empty)
+    def self.counta(values : Array(CellValue)) : CellValue
+      values.reject do |v|
+        v.is_a?(Nil) || (v.is_a?(String) && v.empty?)
+      end.size.to_f
+    end
+
+    # MEDIAN: Returns the median of the given numbers
+    def self.median(values : Array(CellValue)) : CellValue
+      numbers = extract_numbers(values)
+      return num if numbers.empty?
+      return numbers[0] if numbers.size == 1
+
+      sorted = numbers.sort
+      mid = sorted.size // 2
+
+      if sorted.size.odd?
+        sorted[mid]
+      else
+        (sorted[mid - 1] + sorted[mid]) / 2.0
+      end
+    end
+
+    # STDEV.S: Estimates standard deviation based on a sample
+    def self.stdev(values : Array(CellValue)) : CellValue
+      numbers = extract_numbers(values)
+      return div0 if numbers.size < 2
+      return 0.0 if numbers.size == 1
+
+      mean = numbers.sum / numbers.size
+      variance = numbers.sum { |n| (n - mean) ** 2 } / (numbers.size - 1)
+      Math.sqrt(variance)
+    end
+
+    # STDEV.P: Calculates standard deviation based on entire population
+    def self.stdev_p(values : Array(CellValue)) : CellValue
+      numbers = extract_numbers(values)
+      return div0 if numbers.empty?
+
+      mean = numbers.sum / numbers.size
+      variance = numbers.sum { |n| (n - mean) ** 2 } / numbers.size
+      Math.sqrt(variance)
+    end
+
+    # VAR.S: Estimates variance based on a sample
+    def self.var_s(values : Array(CellValue)) : CellValue
+      numbers = extract_numbers(values)
+      return div0 if numbers.size < 2
+
+      mean = numbers.sum / numbers.size
+      numbers.sum { |n| (n - mean) ** 2 } / (numbers.size - 1)
+    end
+
+    # VAR.P: Calculates variance based on entire population
+    def self.var_p(values : Array(CellValue)) : CellValue
+      numbers = extract_numbers(values)
+      return div0 if numbers.empty?
+
+      mean = numbers.sum / numbers.size
+      numbers.sum { |n| (n - mean) ** 2 } / numbers.size
+    end
+
+    # Additional math functions
+
+    # CEILING: Rounds number up to nearest multiple of significance
+    def self.ceiling(number : CellValue, significance : CellValue = 1.0) : CellValue
+      num = to_float(number)
+      sig = to_float(significance) || 1.0
+      return number if num.nil?
+      return div0 if sig == 0
+      return num if sig < 0
+
+      (num / sig).ceil * sig
+    end
+
+    # FLOOR: Rounds number down to nearest multiple of significance
+    def self.floor(number : CellValue, significance : CellValue = 1.0) : CellValue
+      num = to_float(number)
+      sig = to_float(significance) || 1.0
+      return number if num.nil?
+      return div0 if sig == 0
+      return num if sig < 0
+
+      (num / sig).floor.to_f * sig
+    end
+
+    # ROUNDUP: Rounds number up away from zero
+    def self.roundup(number : CellValue, digits : CellValue = 0.0) : CellValue
+      num = to_float(number)
+      d = to_float(digits) || 0.0
+      return number if num.nil?
+
+      multiplier = 10.0 ** d
+      if num >= 0
+        (num * multiplier).ceil.to_f / multiplier
+      else
+        (num * multiplier).floor.to_f / multiplier
+      end
+    end
+
+    # ROUNDDOWN: Rounds number down toward zero
+    def self.rounddown(number : CellValue, digits : CellValue = 0.0) : CellValue
+      num = to_float(number)
+      d = to_float(digits) || 0.0
+      return number if num.nil?
+
+      multiplier = 10.0 ** d
+      if num >= 0
+        (num * multiplier).floor.to_f / multiplier
+      else
+        (num * multiplier).ceil.to_f / multiplier
+      end
+    end
+
+    # RAND: Returns a random number between 0 and 1
+    def self.rand : CellValue
+      ::Random.rand.to_f
+    end
+
+    # RANDBETWEEN: Returns random integer between two numbers
+    def self.randbetween(bottom : CellValue, top : CellValue) : CellValue
+      b = to_float(bottom)
+      t = to_float(top)
+      return num if b.nil? || t.nil?
+      return num if b > t
+
+      ::Random.rand(b.to_i..t.to_i).to_f
+    end
+
+    # Additional text functions
+
+    # FIND: Returns starting position of one text string within another (case-sensitive)
+    def self.find(find_text : CellValue, within_text : CellValue, start_num : CellValue = 1.0) : CellValue
+      find = to_string(find_text)
+      within = to_string(within_text)
+      start = to_float(start_num) || 1.0
+
+      return value if find.empty?
+      return num if start < 1 || start > within.size
+
+      pos = within[(start.to_i - 1)..].index(find)
+      return num if pos.nil?
+
+      (pos + start.to_i).to_f
+    end
+
+    # SEARCH: Returns position of one text string within another (case-insensitive)
+    def self.search(find_text : CellValue, within_text : CellValue, start_num : CellValue = 1.0) : CellValue
+      find = to_string(find_text).downcase
+      within = to_string(within_text).downcase
+      start = to_float(start_num) || 1.0
+
+      return value if find.empty?
+      return num if start < 1 || start > within.size
+
+      pos = within[(start.to_i - 1)..].index(find)
+      return num if pos.nil?
+
+      (pos + start.to_i).to_f
+    end
+
+    # SUBSTITUTE: Replaces existing text with new text
+    def self.substitute(text : CellValue, old_text : CellValue, new_text : CellValue, instance_num : CellValue? = nil) : CellValue
+      txt = to_string(text)
+      old = to_string(old_text)
+      new = to_string(new_text)
+
+      return txt if old.empty?
+
+      if instance_num
+        inst = to_float(instance_num)
+        return txt if inst.nil? || inst < 1
+
+        # Replace only nth instance
+        count = 0
+        txt.gsub(old) do |match|
+          count += 1
+          count == inst.to_i ? new : match
+        end
+      else
+        # Replace all instances
+        txt.gsub(old, new)
+      end
+    end
+
+    # TEXT: Formats a number and converts to text
+    def self.text_func(value : CellValue, format_text : CellValue) : CellValue
+      num = to_float(value)
+      fmt = to_string(format_text)
+
+      return to_string(value) if num.nil?
+
+      # Basic format codes support
+      case fmt
+      when /^0+$/, /^0+\.0+$/
+        # Decimal format
+        decimal_places = fmt.count('0') - (fmt.index('.') || fmt.size)
+        num.round(decimal_places).to_s
+      when /#,##0/
+        # Thousands separator
+        num.to_s.reverse.gsub(/(\d{3})(?=\d)/, "\\1,").reverse
+      when /^%$/
+        "#{(num * 100).round(0).to_i}%"
+      else
+        # Default to number string
+        num.to_s
+      end
+    end
+
+    # VALUE: Converts text to number
+    def self.value_func(text : CellValue) : CellValue
+      txt = to_string(text).strip
+
+      # Try to convert to float
+      begin
+        txt.to_f
+      rescue
+        value
+      end
+    end
+
+    # PROPER: Capitalizes first letter of each word
+    def self.proper(text : CellValue) : CellValue
+      txt = to_string(text)
+      return "" if txt.empty?
+
+      txt.split(' ').map do |word|
+        next word if word.empty?
+        word[0].upcase + word[1..].downcase
+      end.join(' ')
+    end
+
+    # CLEAN: Removes non-printable characters
+    def self.clean(text : CellValue) : CellValue
+      txt = to_string(text)
+      # Remove ASCII control characters (0-31, except 9, 10, 13)
+      txt.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F]/, "")
+    end
+
+    # EXACT: Compares two text strings (case-sensitive)
+    def self.exact(text1 : CellValue, text2 : CellValue) : CellValue
+      to_string(text1) == to_string(text2)
+    end
+
+    # REPT: Repeats text given number of times
+    def self.rept(text : CellValue, number_times : CellValue) : CellValue
+      txt = to_string(text)
+      num = to_float(number_times)
+      return num if num.nil?
+      return value if num < 0
+
+      txt * num.to_i
+    end
+
+    # Date and time functions
+
+    # TODAY: Returns current date as serial number
+    def self.today : CellValue
+      # Excel date system: days since January 1, 1900
+      epoch = Time.utc(1900, 1, 1)
+      seconds = (Time.utc - epoch).total_seconds.to_i64
+      days = (seconds // 86400).to_i
+      (days + 2).to_f # Excel's 1900 date system has a bug treating 1900 as leap year
+    end
+
+    # NOW: Returns current date and time as serial number
+    def self.now : CellValue
+      # Excel datetime: fractional part represents time
+      epoch = Time.utc(1900, 1, 1)
+      seconds = (Time.utc - epoch).total_seconds.to_i64
+      days = (seconds // 86400).to_i
+      # Add fractional time component
+      seconds_today = Time.utc.hour * 3600 + Time.utc.minute * 60 + Time.utc.second
+      fractional = seconds_today / 86400.0
+
+      (days + 2).to_f + fractional
+    end
+
+    # YEAR: Extracts year from date serial number
+    def self.year(serial_number : CellValue) : CellValue
+      num = to_float(serial_number)
+      return value if num.nil?
+
+      epoch = Time.utc(1900, 1, 1)
+      date = epoch + Time::Span.new(seconds: (num.to_i64 - 2) * 86400)
+      date.year.to_f
+    end
+
+    # MONTH: Extracts month from date serial number
+    def self.month(serial_number : CellValue) : CellValue
+      num = to_float(serial_number)
+      return value if num.nil?
+
+      epoch = Time.utc(1900, 1, 1)
+      date = epoch + Time::Span.new(seconds: (num.to_i64 - 2) * 86400)
+      date.month.to_f
+    end
+
+    # DAY: Extracts day from date serial number
+    def self.day(serial_number : CellValue) : CellValue
+      num = to_float(serial_number)
+      return value if num.nil?
+
+      epoch = Time.utc(1900, 1, 1)
+      date = epoch + Time::Span.new(seconds: (num.to_i64 - 2) * 86400)
+      date.day.to_f
+    end
+
+    # DATEDIF: Calculates difference between two dates
+    def self.datedif(start_date : CellValue, end_date : CellValue, unit : CellValue) : CellValue
+      start = to_float(start_date)
+      end_d = to_float(end_date)
+      u = to_string(unit)
+
+      return value if start.nil? || end_d.nil?
+
+      start_epoch = Time.utc(1900, 1, 1) + Time::Span.new(seconds: (start.to_i64 - 2) * 86400)
+      end_epoch = Time.utc(1900, 1, 1) + Time::Span.new(seconds: (end_d.to_i64 - 2) * 86400)
+
+      case u.upcase
+      when "Y"
+        # Years
+        years = end_epoch.year - start_epoch.year
+        years -= 1 if end_epoch < TimeHelpers.add_years(start_epoch, years.to_i)
+        years.to_f
+      when "M"
+        # Months
+        months = (end_epoch.year - start_epoch.year) * 12 + (end_epoch.month - start_epoch.month)
+        months -= 1 if end_epoch < TimeHelpers.add_months(start_epoch, months.to_i)
+        months.to_f
+      when "D"
+        # Days
+        (end_d - start).abs.to_f
+      when "MD"
+        # Days ignoring months and years
+        day_diff = end_epoch.day - start_epoch.day
+        day_diff += 30 if day_diff < 0
+        day_diff.to_f
+      when "YM"
+        # Months ignoring years
+        month_diff = end_epoch.month - start_epoch.month
+        month_diff += 12 if month_diff < 0
+        month_diff.to_f
+      when "YD"
+        # Days ignoring years
+        days_diff = (end_epoch.day_of_year - start_epoch.day_of_year)
+        days_diff += 365 if days_diff < 0
+        days_diff.to_f
+      else
+        value
+      end
+    end
+
+    # EOMONTH: Returns last day of month offset from date
+    def self.eomonth(start_date : CellValue, months : CellValue = 0.0) : CellValue
+      start = to_float(start_date)
+      m = to_float(months) || 0.0
+      return value if start.nil?
+
+      epoch = Time.utc(1900, 1, 1) + Time::Span.new(seconds: (start.to_i64 - 2) * 86400)
+      target = TimeHelpers.add_months(epoch, m.to_i)
+
+      # Find last day of target month
+      last_day = utc_days_in_month(target.year, target.month)
+      end_of_month = Time.utc(target.year, target.month, last_day)
+
+      # Convert back to serial number
+      seconds = (end_of_month - Time.utc(1900, 1, 1)).total_seconds.to_i64
+      days = (seconds // 86400).to_i
+      (days + 2).to_f
+    end
+
+    # Conditional functions
+
+    # IFS: Evaluates multiple conditions and returns value for first true condition
+    def self.ifs(pairs : Array(CellValue)) : CellValue
+      # Pairs should be [condition1, value1, condition2, value2, ...]
+      return value if pairs.size < 2
+      return value if pairs.size.odd?
+
+      pairs.each_slice(2) do |slice|
+        condition = to_bool(slice[0])
+        next if condition.nil?
+
+        if condition
+          return slice[1]
+        end
+      end
+
+      na # No condition was true
+    end
+
+    # SWITCH: Evaluates value against list and returns matching result
+    def self.switch_func(expression : CellValue, pairs : Array(CellValue), default : CellValue? = nil) : CellValue
+      # Pairs should be [value1, result1, value2, result2, ...]
+      return expression if pairs.size < 2
+      return expression if pairs.size.odd?
+
+      pairs.each_slice(2) do |slice|
+        if compare_values(expression, slice[0]) == 0
+          return slice[1]
+        end
+      end
+
+      default || na
+    end
+
+    # Conditional aggregation functions
+
+    # COUNTIF: Counts cells meeting condition
+    def self.countif(range : Array(CellValue), criteria : CellValue) : CellValue
+      count = 0
+      criterion = to_string(criteria)
+
+      range.each do |value|
+        if matches_criteria?(value, criterion)
+          count += 1
+        end
+      end
+
+      count.to_f
+    end
+
+    # SUMIF: Sums cells meeting condition
+    def self.sumif(range : Array(CellValue), criteria : CellValue, sum_range : Array(CellValue)? = nil) : CellValue
+      sum_range ||= range
+      total = 0.0
+      criterion = to_string(criteria)
+
+      range.each_with_index do |value, idx|
+        if matches_criteria?(value, criterion) && idx < sum_range.size
+          num = to_float(sum_range[idx])
+          total += num if num
+        end
+      end
+
+      total
+    end
+
+    # Helper to check if value matches Excel criteria
+    private def self.matches_criteria?(value : CellValue, criterion : String) : Bool
+      # Handle operators
+      if criterion =~ /^([<>]=?|>=|<=|=|<>)(.*)$/
+        operator = $1
+        crit_value = $2
+
+        case value
+        when Float64, String
+          # Try to convert both to numbers for comparison
+          val_num = to_float(value)
+          crit_num = to_float(crit_value)
+
+          if val_num && crit_num
+            case operator
+            when ">"  then val_num > crit_num
+            when "<"  then val_num < crit_num
+            when ">=" then val_num >= crit_num
+            when "<=" then val_num <= crit_num
+            when "="  then val_num == crit_num
+            when "<>" then val_num != crit_num
+            else            false
+            end
+          else
+            # String comparison
+            val_str = to_string(value)
+            case operator
+            when "="  then val_str == crit_value
+            when "<>" then val_str != crit_value
+            else          false
+            end
+          end
+        else
+          false
+        end
+      else
+        # Simple equality or wildcard match
+        val_str = to_string(value)
+
+        if criterion.includes?('*') || criterion.includes?('?')
+          # Wildcard match
+          regex_str = "^#{Regex.escape(criterion).gsub("\\*", ".*").gsub("\\?", ".")}$"
+          !(val_str =~ Regex.new(regex_str, Regex::Options::IGNORE_CASE)).nil?
+        else
+          # Case-insensitive equality
+          val_str.downcase == criterion.downcase
+        end
+      end
+    end
+
+    # Lookup functions (basic implementation for single-column lookups)
+
+    # VLOOKUP: Vertical lookup
+    def self.vlookup(lookup_value : CellValue, table_array : Array(Array(CellValue)), col_index_num : CellValue, range_lookup : CellValue? = true) : CellValue
+      col_idx = to_float(col_index_num)
+      return value if col_idx.nil? || col_idx < 1
+
+      exact_match = range_lookup == false || to_bool(range_lookup) == false
+
+      table_array.each do |row|
+        next if row.empty?
+
+        compare_result = compare_values(lookup_value, row[0])
+        next if compare_result.nil?
+
+        if exact_match
+          if compare_result == 0 && (col_idx.to_i - 1) < row.size
+            return row[col_idx.to_i - 1]
+          end
+        else
+          # Approximate match (table must be sorted)
+          if compare_result <= 0 && (col_idx.to_i - 1) < row.size
+            return row[col_idx.to_i - 1]
+          end
+        end
+      end
+
+      if exact_match
+        na
+      else
+        value
+      end
+    end
+
+    # HLOOKUP: Horizontal lookup
+    def self.hlookup(lookup_value : CellValue, table_array : Array(Array(CellValue)), row_index_num : CellValue, range_lookup : CellValue? = true) : CellValue
+      row_idx = to_float(row_index_num)
+      return value if row_idx.nil? || row_idx < 1
+
+      exact_match = range_lookup == false || to_bool(range_lookup) == false
+
+      # Find matching column in first row
+      match_col = -1
+
+      if table_array.empty? || table_array[0].empty?
+        return value
+      end
+
+      first_row = table_array[0]
+
+      first_row.each_with_index do |cell, col|
+        compare_result = compare_values(lookup_value, cell)
+        next if compare_result.nil?
+
+        if exact_match
+          if compare_result == 0
+            match_col = col
+            break
+          end
+        elsif compare_result <= 0
+          match_col = col
+          break
+        end
+      end
+
+      return na if exact_match && match_col == -1
+      return value if match_col == -1
+
+      # Return value from specified row
+      target_row = row_idx.to_i - 1
+      return ref if target_row >= table_array.size
+
+      table_array[target_row][match_col]?
+    end
+
+    # INDEX: Returns value from array at given position
+    def self.index_func(array : Array(Array(CellValue)), row_num : CellValue, column_num : CellValue) : CellValue
+      row = to_float(row_num)
+      col = to_float(column_num)
+      return value if row.nil? || col.nil? || row < 1 || col < 1
+
+      target_row = row.to_i - 1
+      target_col = col.to_i - 1
+
+      return ref if target_row >= array.size
+      return ref if target_col >= array[target_row].size
+
+      array[target_row][target_col]? || ref
     end
   end
 end

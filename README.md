@@ -8,8 +8,16 @@ Sheety is an Excel-like spreadsheet library for Crystal that parses formulas, ev
   - Arithmetic: `+`, `-`, `*`, `/`, `^`
   - Comparison: `=`, `<`, `>`, `<=`, `>=`, `<>`
   - Text: `&` (concatenation)
-  - Logical: `IF`, `AND`, `OR`, `NOT`
-  - Functions: `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `ROUND`, `ABS`, `CONCAT`, `LEFT`, `RIGHT`, `MID`, `LEN`, `UPPER`, `LOWER`
+  - Logical: `IF`, `AND`, `OR`, `NOT`, `IFS`, `SWITCH`
+  - **Math & Statistical**:
+    - Basic: `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`, `MEDIAN`
+    - Statistics: `STDEV`, `STDEV.P`, `VAR.S`, `VAR.P`
+    - Rounding: `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `CEILING`, `FLOOR`, `INT`, `ABS`
+    - Advanced: `POWER`, `SQRT`, `MOD`, `RAND`, `RANDBETWEEN`
+  - **Text Functions**: `CONCAT`, `LEFT`, `RIGHT`, `MID`, `LEN`, `UPPER`, `LOWER`, `TRIM`, `PROPER`, `FIND`, `SEARCH`, `SUBSTITUTE`, `TEXT`, `VALUE`, `CLEAN`, `EXACT`, `REPT`
+  - **Date & Time**: `TODAY`, `NOW`, `YEAR`, `MONTH`, `DAY`, `DATEDIF`, `EOMONTH`
+  - **Conditional**: `COUNTIF`, `SUMIF`
+  - **Lookup**: `VLOOKUP`, `HLOOKUP`, `INDEX`
   - Cell references: `A1`, `Sheet2!B5`
   - Ranges: `A1:B5`, `Sheet1!A1:A10`
 
@@ -174,12 +182,12 @@ See the `examples/` directory for sample spreadsheet definitions.
 
 ## Current Status
 
-- ✅ Excel formula parsing with 186+ passing tests
+- ✅ Excel formula parsing with 278+ passing tests
 - ✅ AST generation for all formula types
 - ✅ Code generation for Croupier tasks
 - ✅ Cell reference and range support
 - ✅ Multi-sheet support
-- ✅ Excel function implementations
+- ✅ 50+ Excel function implementations (math, statistical, text, date, conditional, lookup)
 - ✅ TUI interface with Termisu
 - ✅ Interactive cell editing with formula and value support
 - ✅ Mouse support (selection, editing, scrolling)
