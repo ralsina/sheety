@@ -340,6 +340,12 @@ module Sheety
       x = event.x
       y = event.y
 
+      # Handle wheel events for scrolling
+      if event.wheel?
+        handle_mouse_wheel(event.button)
+        return
+      end
+
       # Only handle clicks in the grid area
       grid_start_y = @header_height + 1
       grid_end_y = grid_start_y + @grid_height
@@ -348,6 +354,18 @@ module Sheety
 
       if event.press?
         handle_mouse_click(x, y, event.button)
+      end
+    end
+
+    private def handle_mouse_wheel(button : Termisu::Event::Mouse::Button) : Nil
+      # Scroll up or down
+      case button
+      when Termisu::Event::Mouse::Button::WheelUp
+        move_active(-3, 0)  # Scroll up 3 rows
+      when Termisu::Event::Mouse::Button::WheelDown
+        move_active(3, 0)   # Scroll down 3 rows
+      else
+        # Other wheel events (left/right) could scroll horizontally
       end
     end
 
