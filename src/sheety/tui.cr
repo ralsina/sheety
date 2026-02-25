@@ -1,4 +1,5 @@
 require "termisu"
+require "yaml"
 
 module Sheety
   # TUI spreadsheet viewer using Termisu
@@ -92,6 +93,35 @@ module Sheety
 
       # Initialize grid for current sheet
       initialize_grid
+    end
+
+    def set_initial_position(sheet_name : String, cell_ref : String) : Nil
+      # Find the sheet index
+      if sheet_idx = @sheets.index(sheet_name)
+        @current_sheet_idx = sheet_idx
+
+        # Parse the cell reference to get row and column
+        if match = cell_ref.match(/^([A-Z]+)(\d+)$/)
+          col_str = match[1]
+          row_str = match[2]
+
+          # Convert column string to column index
+          @active_col = col_to_num(col_str) - 1
+          # Convert row string to row index (1-based to 0-based)
+          @active_row = row_str.to_i - 1
+
+          # Clamp to valid ranges
+          @active_col = @active_col.clamp(0, @max_col - 1)
+          @active_row = @active_row.clamp(0, @max_row - 1)
+
+          # Reset offsets
+          @row_offset = 0
+          @col_offset = 0
+
+          # Reinitialize grid for the correct sheet
+          initialize_grid
+        end
+      end
     end
 
     def self.new(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), &block : Proc(String, String, String, Nil))
@@ -341,17 +371,15 @@ module Sheety
     end
 
     private def enter_edit_mode : Nil
-      # Check if current cell is a formula cell (locked)
-      if formula_cell?
-        # Show notification that formulas are locked
-        show_notification("FORMULA LOCKED!", 80)
-        @termisu.render
-        return
-      end
-
       @edit_mode = true
-      # Initialize edit buffer with current value
-      @edit_buffer = current_cell_value
+
+      # For formula cells, edit the formula itself
+      # For value cells, edit the current value
+      if formula_cell?
+        @edit_buffer = current_cell_formula
+      else
+        @edit_buffer = current_cell_value
+      end
     end
 
     private def show_notification(message : String, duration : Int32) : Nil
@@ -365,23 +393,43 @@ module Sheety
     end
 
     private def save_edit_value : Nil
-      return if formula_cell?
-
       sheet_name = @sheets[@current_sheet_idx]
       cell_ref = current_cell_ref
 
-      # Call the update callback if provided
-      if callback = @value_update_callback
-        callback.call(sheet_name, cell_ref, @edit_buffer)
-      end
+      # If editing a formula cell, we need to recompile
+      if formula_cell?
+        # Validate that it's still a formula (starts with =)
+        unless @edit_buffer.starts_with?("=")
+          show_notification("Formula must start with =", 60)
+          @edit_mode = false
+          @edit_buffer = ""
+          return
+        end
 
-      # Call the refresh callback if provided to update the grid from store
-      if refresh_cb = @refresh_callback
-        refresh_cb.call
+        # Save the new formula to YAML
+        update_formula_in_yaml(sheet_name, cell_ref, @edit_buffer)
+
+        # Trigger recompile and restart
+        show_notification("Recompiling...", 30)
+        @termisu.render
+
+        # Exit and let the wrapper script recompile
+        @termisu.close
+        exit 42 # Special exit code to signal recompile needed
       else
-        # Fallback: just update the local grid
-        if @active_row < @max_row && @active_col < @max_col
-          @grid[@active_row][@active_col] = @edit_buffer
+        # Regular value cell - just update via callback
+        if callback = @value_update_callback
+          callback.call(sheet_name, cell_ref, @edit_buffer)
+        end
+
+        # Call the refresh callback if provided to update the grid from store
+        if refresh_cb = @refresh_callback
+          refresh_cb.call
+        else
+          # Fallback: just update the local grid
+          if @active_row < @max_row && @active_col < @max_col
+            @grid[@active_row][@active_col] = @edit_buffer
+          end
         end
       end
     end
@@ -479,10 +527,78 @@ module Sheety
         yaml_structure[sheet] = sheet_data unless sheet_data.empty?
       end
 
+      # Convert to YAML::Any structure to add UI metadata
+      yaml_any_structure = {} of YAML::Any => YAML::Any
+      yaml_structure.each do |key, value|
+        # Convert the inner hash (cell_data) to YAML::Any
+        cell_data_any = {} of YAML::Any => YAML::Any
+        value.each do |cell_ref, cell_info|
+          # Convert cell_info to YAML::Any
+          cell_info_any = {} of YAML::Any => YAML::Any
+          cell_info.each do |info_key, info_value|
+            cell_info_any[YAML::Any.new(info_key)] = YAML::Any.new(info_value)
+          end
+          cell_data_any[YAML::Any.new(cell_ref)] = YAML::Any.new(cell_info_any)
+        end
+        yaml_any_structure[YAML::Any.new(key)] = YAML::Any.new(cell_data_any)
+      end
+
+      # Add UI state metadata
+      current_sheet = @sheets[@current_sheet_idx]
+      ui_metadata = {} of YAML::Any => YAML::Any
+      ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(current_sheet)
+      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
+      yaml_any_structure[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
+
       # Write to YAML file
-      File.write(source_file, yaml_structure.to_yaml)
+      File.open(source_file, "w") do |file|
+        file.print(yaml_any_structure.to_yaml)
+        file.flush
+        file.fsync
+      end
       show_notification("Saved to #{source_file}", 30)
       @termisu.render
+    end
+
+    private def update_formula_in_yaml(sheet_name : String, cell_ref : String, new_formula : String) : Nil
+      source_file = @source_file
+      return if source_file.nil? || source_file.empty?
+
+      # Read existing YAML
+      yaml_content = File.read(source_file)
+      data = YAML.parse(yaml_content)
+
+      # Update the formula - iterate through the hash to find the right cell
+      data.as_h.each do |sheet_key, sheet_value|
+        if sheet_key.as_s == sheet_name
+          sheet_value.as_h.each do |cell_key, cell_value|
+            if cell_key.as_s == cell_ref
+              # Found the cell - update the formula
+              cell_value.as_h[YAML::Any.new("formula")] = YAML::Any.new(new_formula)
+
+              # Update UI state to current position
+              current_sheet = @sheets[@current_sheet_idx]
+              ui_metadata = {} of YAML::Any => YAML::Any
+              ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(current_sheet)
+              ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
+              data.as_h[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
+
+              # Write back with explicit flush
+              new_yaml = data.to_yaml
+              File.open(source_file, "w") do |file|
+                file.print(new_yaml)
+                file.flush
+                # Also call fsync to ensure OS writes to disk
+                file.fsync
+              end
+              return
+            end
+          end
+        end
+      end
+
+      # If we get here, the cell wasn't found
+      show_notification("Error: Could not update formula in YAML", 60)
     end
 
     private def handle_resize(event : Termisu::Event::Resize) : Nil

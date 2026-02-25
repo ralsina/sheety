@@ -50,6 +50,9 @@ module Sheety
       initial_values = Hash(String, Float64 | String | Bool).new
 
       data.as_h.each do |sheet_name, sheet_data|
+        # Skip UI metadata
+        next if sheet_name.as_s == "_ui_state"
+
         sheet_data.as_h.each do |cell_ref, cell_data|
           cell_data = cell_data.as_h
           key = "#{sheet_name}!#{cell_ref}"
@@ -93,15 +96,86 @@ module Sheety
         puts "\nLaunching TUI..."
         puts "Press Q to exit\n"
 
-        # Run the binary
-        run_result = Process.run("./#{binary_name}", output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+        # Loop to handle recompiles when formulas are edited
+        loop do
+          # Run the binary
+          run_result = Process.run("./#{binary_name}", output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
-        # If TUI failed (no TTY), show message
-        unless run_result.success?
-          puts "\nNote: TUI requires a terminal. Run './#{binary_name}' in a terminal to view the spreadsheet."
+          # Exit code 42 means formula was edited, need to recompile
+          if run_result.exit_code == 42
+            puts "\nFormula edited, regenerating and recompiling...\n"
+
+            # Add a small delay to ensure YAML file is fully written
+            sleep(0.2.seconds)
+
+            # Delete the old binary and generated source to ensure clean rebuild
+            File.delete(binary_name) if File.exists?(binary_name)
+            File.delete(output_cr) if File.exists?(output_cr)
+
+            # Regenerate the Crystal source from the updated YAML
+            # We need to recreate the generator and regenerate the source code
+            data = YAML.parse(File.read(filename))
+            new_initial_values = Hash(String, Float64 | String | Bool).new
+
+            data.as_h.each do |sheet_name, sheet_data|
+              # Skip UI metadata
+              next if sheet_name.as_s == "_ui_state"
+
+              sheet_data.as_h.each do |cell_ref, cell_data|
+                cell_data = cell_data.as_h
+                key = "#{sheet_name}!#{cell_ref}"
+
+                if cell_data.has_key?("formula")
+                  # Formulas will be regenerated
+                elsif cell_data.has_key?("value")
+                  value = parse_value(cell_data["value"])
+                  new_initial_values[key] = value
+                end
+              end
+            end
+
+            # Create new generator and regenerate source code
+            new_generator = CroupierGenerator.new
+            data.as_h.each do |sheet_name, sheet_data|
+              # Skip UI metadata
+              next if sheet_name.as_s == "_ui_state"
+
+              sheet_data.as_h.each do |cell_ref, cell_data|
+                cell_data = cell_data.as_h
+                if cell_data.has_key?("formula")
+                  new_generator.add_formula(cell_ref.to_s, cell_data["formula"].to_s, sheet_name.to_s)
+                end
+              end
+            end
+
+            new_source_code = new_generator.generate_source(new_initial_values, true, filename)
+
+            if new_source_code.empty?
+              STDERR.puts "Error: Failed to regenerate source code"
+              exit 1
+            end
+
+            # Write the regenerated source
+            File.write(output_cr, new_source_code)
+
+            # Now build the binary
+            build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+
+            unless build_result.success?
+              STDERR.puts "\nError: Recompile failed"
+              exit 1
+            end
+
+            puts "Recompiled successfully, restarting...\n"
+            # Continue loop to restart TUI
+          else
+            # Normal exit or error
+            unless run_result.success?
+              puts "\nNote: TUI requires a terminal. Run './#{binary_name}' in a terminal to view the spreadsheet."
+            end
+            exit run_result.exit_code
+          end
         end
-
-        exit run_result.exit_code
       else
         puts "\nRun with: ./#{binary_name}"
       end

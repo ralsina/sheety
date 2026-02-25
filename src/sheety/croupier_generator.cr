@@ -499,6 +499,24 @@ tui.set_refresh_callback do
   tui.refresh_current_sheet
 end
 
+# Restore UI state if available
+#{source_file ? %{
+# Try to restore cursor position from YAML
+begin
+  yaml_data = YAML.parse(File.read(#{source_file.inspect}))
+  if yaml_data.as_h.has_key?("_ui_state")
+    ui_state = yaml_data["_ui_state"]
+    if ui_state.as_h.has_key?("active_sheet") && ui_state.as_h.has_key?("active_cell")
+      saved_sheet = ui_state["active_sheet"].as_s
+      saved_cell = ui_state["active_cell"].as_s
+      tui.set_initial_position(saved_sheet, saved_cell)
+    end
+  end
+rescue
+  # Ignore errors restoring UI state
+end
+} : ""}
+
 # Run the TUI
 tui.run
 }
