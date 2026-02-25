@@ -15,9 +15,30 @@ Sheety is an Excel-like spreadsheet library for Crystal that parses formulas, ev
 
 - **Dependency Tracking**: Uses Croupier to track dependencies and only recalculate affected cells
 
-- **Interactive Mode**: Generated binaries support interactive REPL for modifying cell values
+- **TUI Interface**: Modern terminal UI with Lotus 1-2-3 style grid interface
+  - 1000x1000 grid display with headers and row numbers
+  - Column headers (A, B, C...) and row numbers (1, 2, 3...)
+  - Active cell highlighting
+  - Formula bar showing current cell's formula or value
+  - Status bar with navigation hints
+  - Multiple sheet support with Tab switching
 
-- **Spreadheet Display**: Shows results in a proper grid layout using Tablo
+- **Interactive Editing**: Full cell editing capabilities
+  - Edit value cells by typing new values
+  - Edit formula cells directly with real-time cursor
+  - Auto-recalculation of dependent formulas on any change
+  - Formula editing triggers automatic recompile and restart
+  - Visual cursor positioning in edit mode
+
+- **Mouse Support**: Intuitive mouse navigation
+  - Click to select cells
+  - Double-click to edit cells
+  - Mouse wheel scrolling through rows
+
+- **State Persistence**: Saves and restores UI state
+  - Remembers cursor position (sheet and cell) across sessions
+  - Saves modified values and formulas back to YAML
+  - Scans entire grid to capture all changes
 
 ## Installation
 
@@ -42,12 +63,37 @@ shards install
 Sheety provides a CLI for compiling spreadsheet definitions into standalone binaries:
 
 ```bash
-# Compile a spreadsheet YAML to a Crystal binary
+# Compile a spreadsheet YAML to a Crystal binary (auto-builds and runs)
 sheety compile examples/test_sheet.yaml
 
-# Run the generated binary (interactive mode by default)
-./test_sheet
+# The binary is automatically built and launched with the TUI
+# Press Q to exit
 ```
+
+### TUI Controls
+
+**Navigation:**
+- **Arrow keys** - Move cursor up/down/left/right
+- **Home/End** - Jump to first/last column or row
+- **Page Up/Down** - Scroll by page
+- **Tab** - Switch between sheets
+- **Mouse wheel** - Scroll up/down
+- **Click** - Select cell
+- **Double-click** - Edit cell
+
+**Editing:**
+- **Enter** - Edit current cell
+- **Escape** - Cancel edit / Exit TUI
+- **S** - Save spreadsheet to YAML
+- **Q** - Quit
+
+**Edit Mode:**
+- **Arrow keys** - Move cursor within text
+- **Home/End** - Jump to start/end of text
+- **Backspace** - Delete character before cursor
+- **Delete** - Delete character at cursor
+- **Enter** - Save changes
+- **Escape** - Cancel edit
 
 ### Spreadsheet YAML Format
 
@@ -83,26 +129,6 @@ Sheet2:
     value: 100
   A2:
     formula: "=Sheet1!A4*2"
-```
-
-### Interactive Mode
-
-When you run the generated binary, you enter interactive REPL mode:
-
-```
-=== Spreadsheet Results ===
-[... table display ...]
-
-=== Interactive Mode ===
-Enter cell assignments (e.g., A1=123, Sheet2!B5=hello)
-Commands: 'quit' or 'exit' to quit, 'show' to refresh display
-
-> A1=999
-Set Sheet1!A1 = 999
-[... updated table with recalculated formulas ...]
-
-> quit
-Goodbye!
 ```
 
 ### Programmatic Usage
@@ -148,16 +174,18 @@ See the `examples/` directory for sample spreadsheet definitions.
 
 ## Current Status
 
-- ✅ Excel formula parsing with 186 passing tests
+- ✅ Excel formula parsing with 186+ passing tests
 - ✅ AST generation for all formula types
 - ✅ Code generation for Croupier tasks
 - ✅ Cell reference and range support
 - ✅ Multi-sheet support
 - ✅ Excel function implementations
-- ✅ Interactive REPL mode
-- ✅ Spreadsheet grid display with Tablo
+- ✅ TUI interface with Termisu
+- ✅ Interactive cell editing with formula and value support
+- ✅ Mouse support (selection, editing, scrolling)
+- ✅ State persistence (cursor position, values, formulas)
+- ✅ Automatic recompilation on formula changes
 - ✅ Dependency tracking with Croupier
-- ✅ Automatic recalculation on value changes
 
 ## License
 
