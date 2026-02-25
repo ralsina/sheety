@@ -1,5 +1,6 @@
 require "yaml"
 require "./croupier_generator"
+require "./importers/excel_importer"
 
 module Sheety
   class CLI
@@ -34,41 +35,39 @@ module Sheety
         exit 1
       end
 
-      yaml_content = File.read(filename)
-
       # Check for --no-interactive flag to disable interactive mode
       interactive = !extra_args.includes?("--no-interactive")
 
+      # For .xlsx files, convert to YAML and save in examples/ first
+      ext = File.extname(filename).downcase
+      actual_filename = filename
+
+      if ext == ".xlsx"
+        puts "Converting Excel file to YAML format..."
+        actual_filename = convert_excel_to_yaml(filename)
+      end
+
       # Generate output filename if not specified
-      output_cr = extra_args[0]? || filename.gsub(/\.yaml$/, ".cr")
+      output_base = extra_args[0]? || actual_filename.gsub(/\.yaml$/, "").gsub(/\.yml$/, "")
+
+      # Ensure .cr extension for source file
+      output_cr = if output_base.ends_with?(".cr")
+                    output_base
+                  else
+                    output_base + ".cr"
+                  end
 
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
-
-      # Load YAML and add all formulas and initial values
-      data = YAML.parse(yaml_content)
       initial_values = Hash(String, Float64 | String | Bool).new
 
-      data.as_h.each do |sheet_name, sheet_data|
-        # Skip UI metadata
-        next if sheet_name.as_s == "_ui_state"
-
-        sheet_data.as_h.each do |cell_ref, cell_data|
-          cell_data = cell_data.as_h
-          key = "#{sheet_name}!#{cell_ref}"
-
-          if cell_data.has_key?("formula")
-            formula = cell_data["formula"].to_s
-            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
-          elsif cell_data.has_key?("value")
-            value = parse_value(cell_data["value"])
-            initial_values[key] = value
-          end
-        end
-      end
+      # Load YAML file and process
+      yaml_content = File.read(actual_filename)
+      data = YAML.parse(yaml_content)
+      process_yaml_data(data, generator, initial_values)
 
       # Generate Croupier task source code with initial values
-      source_code = generator.generate_source(initial_values, interactive, filename)
+      source_code = generator.generate_source(initial_values, interactive, actual_filename)
 
       if source_code.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
@@ -78,8 +77,8 @@ module Sheety
       # Write the source file
       File.write(output_cr, source_code)
 
-      # Determine binary name
-      binary_name = File.basename(output_cr, ".cr")
+      # Determine binary name (remove .cr extension but keep directory)
+      binary_name = output_cr.gsub(/\.cr$/, "")
 
       # Build the binary
       puts "Building #{binary_name}..."
@@ -99,7 +98,7 @@ module Sheety
         # Loop to handle recompiles when formulas are edited
         loop do
           # Run the binary
-          run_result = Process.run("./#{binary_name}", output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+          run_result = Process.run(binary_name, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
           # Exit code 42 means formula was edited, need to recompile
           if run_result.exit_code == 42
@@ -192,8 +191,8 @@ module Sheety
         exit 1
       end
 
-      # Load and process the YAML file
-      evaluator = load_yaml_file(filename)
+      # Load and process the file
+      evaluator = load_file(filename)
 
       # Calculate all formulas
       evaluator.calculate_all
@@ -204,9 +203,44 @@ module Sheety
       exit 0
     end
 
+    private def self.load_file(filename : String) : Evaluator
+      ext = File.extname(filename).downcase
+
+      case ext
+      when ".xlsx"
+        load_excel_file(filename)
+      when ".yaml", ".yml"
+        load_yaml_file(filename)
+      else
+        STDERR.puts "Error: Unsupported file format: #{ext}"
+        STDERR.puts "Supported formats: .xlsx, .yaml, .yml"
+        exit 1
+      end
+    end
+
+    private def self.load_excel_file(filename : String) : Evaluator
+      workbook = ExcelImporter.parse_xlsx(filename)
+      evaluator = Evaluator.new
+
+      workbook.sheets.each do |sheet|
+        sheet.cells.each do |cell|
+          if formula = cell.formula
+            evaluator.set_formula(cell.reference, formula, sheet.name)
+          elsif value = cell.value
+            evaluator.set(cell.reference, value, sheet.name)
+          end
+        end
+      end
+
+      evaluator
+    end
+
     private def self.load_yaml_file(filename : String) : Evaluator
       data = YAML.parse(File.read(filename))
+      load_yaml_data_to_evaluator(data)
+    end
 
+    private def self.load_yaml_data_to_evaluator(data : YAML::Any) : Evaluator
       evaluator = Evaluator.new
 
       data.as_h.each do |sheet_name, sheet_data|
@@ -246,6 +280,50 @@ module Sheety
         raw
       else
         raw.to_s
+      end
+    end
+
+    # Parse value from CellValue type (used for Excel import)
+    private def self.parse_cell_value(value : Functions::CellValue) : Functions::CellValue
+      value
+    end
+
+    # Process Excel file data and add to generator
+    private def self.process_excel_file(filename : String, generator : CroupierGenerator, initial_values : Hash(String, Float64 | String | Bool))
+      workbook = ExcelImporter.parse_xlsx(filename)
+
+      workbook.sheets.each do |sheet|
+        sheet.cells.each do |cell|
+          key = "#{sheet.name}!#{cell.reference}"
+
+          if formula = cell.formula
+            generator.add_formula(cell.reference, formula, sheet.name)
+          elsif value = cell.value
+            # Only add non-nil values
+            initial_values[key] = value.as(Float64 | String | Bool)
+          end
+        end
+      end
+    end
+
+    # Process YAML data and add to generator
+    private def self.process_yaml_data(data : YAML::Any, generator : CroupierGenerator, initial_values : Hash(String, Float64 | String | Bool))
+      data.as_h.each do |sheet_name, sheet_data|
+        # Skip UI metadata
+        next if sheet_name.as_s == "_ui_state"
+
+        sheet_data.as_h.each do |cell_ref, cell_data|
+          cell_data = cell_data.as_h
+          key = "#{sheet_name}!#{cell_ref}"
+
+          if cell_data.has_key?("formula")
+            formula = cell_data["formula"].to_s
+            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
+          elsif cell_data.has_key?("value")
+            value = parse_value(cell_data["value"])
+            initial_values[key] = value
+          end
+        end
       end
     end
 
@@ -324,17 +402,87 @@ module Sheety
       end
     end
 
+    # Convert Excel file to YAML format and save to examples/
+    private def self.convert_excel_to_yaml(filename : String) : String
+      # Ensure examples directory exists
+      Dir.mkdir("examples") unless Dir.exists?("examples")
+
+      # Get the base filename and change extension to .yaml
+      basename = File.basename(filename, ".xlsx")
+      yaml_filename = "examples/#{basename}.yaml"
+
+      # If file already exists, append a number
+      if File.exists?(yaml_filename)
+        counter = 1
+        loop do
+          new_name = "examples/#{basename}_#{counter}.yaml"
+          break unless File.exists?(new_name)
+          counter += 1
+        end
+        yaml_filename = "examples/#{basename}_#{counter}.yaml"
+      end
+
+      # Parse Excel file and convert to internal format (Hash)
+      workbook = ExcelImporter.parse_xlsx(filename)
+      hash_data = ExcelImporter.to_internal_format(workbook)
+
+      # Convert Hash to YAML string manually to ensure proper format
+      yaml_string = hash_to_yaml_string(hash_data)
+
+      # Write YAML file
+      File.write(yaml_filename, yaml_string)
+      puts "Created YAML file: #{yaml_filename}"
+
+      yaml_filename
+    end
+
+    # Convert the internal hash format to a YAML string
+    private def self.hash_to_yaml_string(data : Hash(String, Hash(String, Hash(String, Functions::CellValue)))) : String
+      lines = [] of String
+
+      data.each do |sheet_name, sheet_data|
+        lines << "#{sheet_name}:"
+        sheet_data.each do |cell_ref, cell_data|
+          lines << "  #{cell_ref}:"
+          cell_data.each do |key, value|
+            case value
+            when String
+              lines << "    #{key}: #{value.inspect}"
+            when Float64
+              if value == value.to_i
+                lines << "    #{key}: #{value.to_i}"
+              else
+                lines << "    #{key}: #{value}"
+              end
+            when Bool
+              lines << "    #{key}: #{value}"
+            when Nil
+              # Skip nil values
+            else
+              lines << "    #{key}: #{value.inspect}"
+            end
+          end
+        end
+      end
+
+      lines.join("\n")
+    end
+
     private def self.print_help : Nil
       puts <<-HELP
         Usage: sheety <command> [options]
 
         Commands:
-          sheety <file.yaml>           Evaluate and print spreadsheet
-          sheety compile <file.yaml>   Compile spreadsheet to standalone binary (interactive mode by default)
+          sheety <file.(yaml|xlsx)>           Evaluate and print spreadsheet
+          sheety compile <file.(yaml|xlsx)>   Compile spreadsheet to standalone binary (interactive mode by default)
 
         Compile options:
-          [output.cr]                 Generated Crystal source file (default: input.yaml -> input.cr)
+          [output.cr]                 Generated Crystal source file (default: input.(yaml|xlsx) -> input.cr)
           --no-interactive             Generate non-interactive binary (runs once and exits)
+
+        Input formats:
+          .xlsx                       Excel 2007+ format (with formula support)
+          .yaml, .yml                 YAML format
 
         YAML Format:
           SheetName:

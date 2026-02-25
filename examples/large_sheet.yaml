@@ -1,0 +1,10 @@
+# Large empty spreadsheet file for Sheety
+# 1000 rows x 1000 columns
+
+Sheet1:
+  A1:
+    value: 1
+  ALK1:
+    value: 999
+  A1000:
+    value: "Bottom"

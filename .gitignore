@@ -8,3 +8,16 @@
 # Dependencies will be locked in applications that use them
 /shard.lock
 .claude/
+
+# Compiled binaries
+test_sheet
+sheety
+registry
+
+# Test binaries
+examples/test_excel
+examples/test_sheet
+examples/test_sheet2
+test_excel_cr
+test_sheet_cr
+test_sheet2
