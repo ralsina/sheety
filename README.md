@@ -2,6 +2,10 @@
 
 Sheety is an Excel-like spreadsheet library for Crystal that parses formulas, evaluates expressions, and generates standalone binaries using Croupier for task-based dependency tracking.
 
+> **⚠️ Note:** This is experimental software. We're compiling YAML spreadsheets into binaries here. It's ridiculous, it's probably unnecessary, and it absolutely works.
+
+**🌐 Check out the website:** [sheety.ralsina.me](https://sheety.ralsina.me)
+
 ## Features
 
 - **Excel Formula Parser**: Parses a comprehensive subset of Excel formulas
@@ -22,6 +26,11 @@ Sheety is an Excel-like spreadsheet library for Crystal that parses formulas, ev
   - Ranges: `A1:B5`, `Sheet1!A1:A10`
 
 - **Dependency Tracking**: Uses Croupier to track dependencies and only recalculate affected cells
+
+- **Hash-Based Build Caching**: Smart content-based caching makes re-running unchanged spreadsheets ~400x faster
+  - First run: ~3 seconds (normal compilation)
+  - Cached runs: ~0.007 seconds (instant startup)
+  - Automatically recompiles when YAML content changes
 
 - **TUI Interface**: Modern terminal UI with Lotus 1-2-3 style grid interface
   - 1000x1000 grid display with headers and row numbers
@@ -48,6 +57,8 @@ Sheety is an Excel-like spreadsheet library for Crystal that parses formulas, ev
   - Saves modified values and formulas back to YAML
   - Scans entire grid to capture all changes
 
+- **Excel Import**: Convert .xlsx files to YAML and compile them to binaries
+
 ## Installation
 
 Add the dependency to your `shard.yml`:
@@ -72,10 +83,13 @@ Sheety provides a CLI for compiling spreadsheet definitions into standalone bina
 
 ```bash
 # Compile a spreadsheet YAML to a Crystal binary (auto-builds and runs)
-sheety compile examples/test_sheet.yaml
+./bin/sheety examples/test_sheet.yaml
 
 # The binary is automatically built and launched with the TUI
 # Press Q to exit
+
+# Second run uses cache and is instant!
+./bin/sheety examples/test_sheet.yaml
 ```
 
 ### TUI Controls
