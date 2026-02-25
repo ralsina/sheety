@@ -92,6 +92,15 @@ module Sheety
       @refresh_callback = nil
       @value_getter_callback = ->(_sheet : String, _cell : String) { "" }
 
+      # Enable mouse support
+      @termisu.enable_mouse
+
+      # Mouse click tracking
+      @last_click_time = 0_i64
+      @last_click_col = -1
+      @last_click_row = -1
+      @click_count = 0
+
       # Initialize grid for current sheet
       initialize_grid
     end
@@ -152,6 +161,9 @@ module Sheety
               clear_notification
             end
             render if should_render?(event)
+          when Termisu::Event::Mouse
+            handle_mouse_event(event)
+            render
           when Termisu::Event::Resize
             handle_resize(event)
             render
@@ -321,6 +333,76 @@ module Sheety
             @edit_cursor += 1
           end
         end
+      end
+    end
+
+    private def handle_mouse_event(event : Termisu::Event::Mouse) : Nil
+      x = event.x
+      y = event.y
+
+      # Only handle clicks in the grid area
+      grid_start_y = @header_height + 1
+      grid_end_y = grid_start_y + @grid_height
+
+      return if y < grid_start_y || y >= grid_end_y
+
+      if event.press?
+        handle_mouse_click(x, y, event.button)
+      end
+    end
+
+    private def handle_mouse_click(x : Int32, y : Int32, button : Termisu::Event::Mouse::Button) : Nil
+      # Calculate which cell was clicked
+      grid_y = y - @header_height - 1
+
+      # Calculate column position (accounting for row labels and spacer)
+      cols_per_screen = (@grid_width - @row_num_width - @spacer_width) // (@cell_width + 1)
+
+      # Find which column was clicked
+      clicked_col = -1
+      col_x = @row_num_width + @spacer_width
+      (@col_offset...@col_offset + cols_per_screen).each do |col_idx|
+        break if col_idx >= @max_col
+        if x >= col_x && x < col_x + @cell_width + 1
+          clicked_col = col_idx
+          break
+        end
+        col_x += @cell_width + 1
+      end
+
+      return if clicked_col == -1
+
+      # Calculate row (accounting for offset)
+      clicked_row = @row_offset + grid_y - 1
+
+      return if clicked_row >= @max_row || clicked_row < 0
+
+      # Detect double-click (within 500ms and same position)
+      current_time = Time.utc.to_unix_ms
+      is_double_click = false
+
+      if @last_click_col == clicked_col && @last_click_row == clicked_row
+        time_diff = current_time - @last_click_time
+        if time_diff < 500
+          is_double_click = true
+          @click_count = 0
+        end
+      end
+
+      @last_click_time = current_time
+      @last_click_col = clicked_col
+      @last_click_row = clicked_row
+
+      # Update active cell
+      @active_col = clicked_col
+      @active_row = clicked_row
+
+      adjust_row_offset
+      adjust_col_offset
+
+      # Double-click enters edit mode
+      if is_double_click
+        enter_edit_mode
       end
     end
 
@@ -852,7 +934,7 @@ module Sheety
       end
 
       # Draw help hints
-      help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Tab:Sheet | S:Save | Q:Quit"
+      help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Click:Select | DblClick:Edit | Tab:Sheet | S:Save | Q:Quit"
       help_x = {@grid_width - help_text.size, 0}.max
 
       help_text.each_char_with_index do |char, i|
