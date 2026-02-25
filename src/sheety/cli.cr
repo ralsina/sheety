@@ -65,7 +65,7 @@ module Sheety
       end
 
       # Generate Croupier task source code with initial values
-      source_code = generator.generate_source(initial_values, interactive)
+      source_code = generator.generate_source(initial_values, interactive, filename)
 
       if source_code.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"

@@ -39,16 +39,21 @@ module Sheety
     @edit_mode : Bool = false
     @edit_buffer : String = ""
     @formula_bar_height : Int32 = 1
+    @notification_message : String = ""
+    @notification_timeout : Int32 = 0
 
     # Callback for updating cell values
     @value_update_callback : Proc(String, String, String, Nil)?
     @refresh_callback : Proc(Nil)?
     @value_getter_callback : Proc(String, String, String)?
+    @save_callback : Proc(Nil)?
+    @source_file : String?
 
-    def initialize(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), update_callback : Proc(String, String, String, Nil) = ->(_s : String, _c : String, _v : String) {})
+    def initialize(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), update_callback : Proc(String, String, String, Nil) = ->(_s : String, _c : String, _v : String) {}, source_file : String? = nil)
       @termisu = Termisu.new
       @sheets = sheets.sort
       @sheet_data = sheet_data
+      @source_file = source_file
       @current_sheet_idx = 0
       @active_row = 0
       @active_col = 0
@@ -98,10 +103,23 @@ module Sheety
       render
 
       loop do
+        # Decrease notification timeout
+        if @notification_timeout > 0
+          @notification_timeout -= 1
+          if @notification_timeout == 0
+            @notification_message = ""
+            render
+          end
+        end
+
         if event = @termisu.poll_event(100)
           case event
           when Termisu::Event::Key
             handle_key_event(event)
+            # Clear notification on any key press
+            if @notification_timeout > 0
+              clear_notification
+            end
             render if should_render?(event)
           when Termisu::Event::Resize
             handle_resize(event)
@@ -139,12 +157,12 @@ module Sheety
           # Try to get value from callback first (for edited cells), then from data
           value = if callback = @value_getter_callback
                     fetched = callback.call(sheet_name, cell_ref)
-                    unless fetched.empty?
-                      fetched
-                    else
+                    if fetched.empty?
                       # Not in store, check original data
                       cell_data = cell_map[cell_ref]?
                       cell_data ? cell_data[:value] : ""
+                    else
+                      fetched
                     end
                   else
                     # No callback, use original data
@@ -221,6 +239,9 @@ module Sheety
       when .back_tab?
         # Previous sheet
         switch_sheet(-1)
+      when .s?
+        # Save to YAML
+        save_to_yaml
       end
     end
 
@@ -322,13 +343,25 @@ module Sheety
     private def enter_edit_mode : Nil
       # Check if current cell is a formula cell (locked)
       if formula_cell?
-        # Formula cells are locked, don't enter edit mode
+        # Show notification that formulas are locked
+        show_notification("FORMULA LOCKED!", 80)
+        @termisu.render
         return
       end
 
       @edit_mode = true
       # Initialize edit buffer with current value
       @edit_buffer = current_cell_value
+    end
+
+    private def show_notification(message : String, duration : Int32) : Nil
+      @notification_message = message
+      @notification_timeout = duration
+    end
+
+    private def clear_notification : Nil
+      @notification_message = ""
+      @notification_timeout = 0
     end
 
     private def save_edit_value : Nil
@@ -361,8 +394,95 @@ module Sheety
       @value_getter_callback = callback
     end
 
+    def set_save_callback(&callback : Proc(Nil))
+      @save_callback = callback
+    end
+
+    def set_source_file(source_file : String) : Nil
+      @source_file = source_file
+    end
+
     def refresh_current_sheet : Nil
       initialize_grid
+    end
+
+    def save_to_yaml : Nil
+      source_file = @source_file
+      return if source_file.nil? || source_file.empty?
+
+      if callback = @save_callback
+        callback.call
+      else
+        # Default save implementation
+        perform_save
+      end
+    end
+
+    private def perform_save : Nil
+      source_file = @source_file
+      return if source_file.nil? || source_file.empty?
+
+      # Build YAML structure
+      yaml_structure = {} of String => Hash(String, Hash(String, String | Float64))
+
+      # Build a map of original formulas by sheet and cell
+      formula_map = {} of String => Hash(String, String)
+      @sheet_data.each do |sheet, cells|
+        formula_map[sheet] = {} of String => String
+        cells.each do |cell|
+          unless cell[:formula].empty?
+            formula_map[sheet][cell[:cell]] = cell[:formula]
+          end
+        end
+      end
+
+      @sheets.each do |sheet|
+        sheet_data = {} of String => Hash(String, String | Float64)
+        formulas = formula_map[sheet]?
+
+        # Scan the entire grid for this sheet
+        (0...@max_row).each do |row|
+          (0...@max_col).each do |col|
+            # Convert to cell reference
+            cell_ref = num_to_col(col + 1) + (row + 1).to_s
+
+            # Get current value from grid or callback
+            current_value = if getter = @value_getter_callback
+                              getter.call(sheet, cell_ref)
+                            else
+                              @grid[row][col]
+                            end
+
+            # Skip empty cells
+            next if current_value.empty?
+
+            cell_info = {} of String => String | Float64
+
+            # Check if this cell has a formula
+            if formulas && formulas.has_key?(cell_ref)
+              cell_info["formula"] = formulas[cell_ref]
+            end
+
+            # Try to parse as number, otherwise keep as string
+            parsed = current_value.to_f?
+            if parsed && current_value == parsed.to_s
+              cell_info["value"] = parsed
+            else
+              cell_info["value"] = current_value
+            end
+
+            sheet_data[cell_ref] = cell_info
+          end
+        end
+
+        # Only add sheet if it has data
+        yaml_structure[sheet] = sheet_data unless sheet_data.empty?
+      end
+
+      # Write to YAML file
+      File.write(source_file, yaml_structure.to_yaml)
+      show_notification("Saved to #{source_file}", 30)
+      @termisu.render
     end
 
     private def handle_resize(event : Termisu::Event::Resize) : Nil
@@ -555,21 +675,27 @@ module Sheety
       sheet_name = @sheets[@current_sheet_idx]
       cell_ref = num_to_col(@active_col + 1) + (@active_row + 1).to_s
 
-      status_text = "#{sheet_name}!#{cell_ref}"
+      # Show notification or normal status text
+      if @notification_timeout > 0
+        status_text = @notification_message
+      else
+        status_text = "#{sheet_name}!#{cell_ref}"
+      end
 
       # Draw status bar background
       (0...@grid_width).each do |i|
         @termisu.set_cell(i, status_y, ' ', fg: @fg_status, bg: @bg_status)
       end
 
-      # Draw status text
+      # Draw status text (use different color for notifications)
+      status_color = @notification_timeout > 0 ? Termisu::Color.yellow : @fg_status
       status_text.each_char_with_index do |char, i|
         break if i >= @grid_width
-        @termisu.set_cell(i, status_y, char, fg: @fg_status, bg: @bg_status, attr: Termisu::Attribute::Bold)
+        @termisu.set_cell(i, status_y, char, fg: status_color, bg: @bg_status, attr: Termisu::Attribute::Bold)
       end
 
       # Draw help hints
-      help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Tab:Sheet | Q:Quit"
+      help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Tab:Sheet | S:Save | Q:Quit"
       help_x = {@grid_width - help_text.size, 0}.max
 
       help_text.each_char_with_index do |char, i|

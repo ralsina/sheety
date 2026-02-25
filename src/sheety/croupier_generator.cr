@@ -119,7 +119,7 @@ module Sheety
 
     # Generate Crystal source code for all tasks
     # This can be written to a file and compiled
-    def generate_source(initial_values : Hash(String, Float64 | String | Bool) = Hash(String, Float64 | String | Bool).new, interactive : Bool = false) : String
+    def generate_source(initial_values : Hash(String, Float64 | String | Bool) = Hash(String, Float64 | String | Bool).new, interactive : Bool = false, source_file : String? = nil) : String
       if interactive
         # For interactive mode, require termisu instead of tablo
         source = %{
@@ -156,7 +156,7 @@ module Sheety
 
       # Finally, run the tasks and print results
       if interactive
-        source += generate_tui_mode(initial_values)
+        source += generate_tui_mode(initial_values, source_file)
       else
         source += generate_execution_code(initial_values)
       end
@@ -411,7 +411,7 @@ puts ""
     end
 
     # Generate TUI mode
-    private def generate_tui_mode(initial_values : Hash(String, Float64 | String | Bool)) : String
+    private def generate_tui_mode(initial_values : Hash(String, Float64 | String | Bool), source_file : String?) : String
       # Get the sheet data collection code
       sheets_data = {} of String => Hash(String, Hash(String, String))
 
@@ -484,6 +484,9 @@ tui = Sheety::TUI.new(sheets, sheet_data) do |sheet, cell_ref, new_value|
   # Re-run dependent tasks
   Croupier::TaskManager.run_tasks
 end
+
+# Set source file for save functionality
+#{source_file ? "tui.set_source_file(#{source_file.inspect})" : ""}
 
 # Set value getter callback to fetch fresh values from Croupier store
 tui.set_value_getter do |sheet, cell_ref|
