@@ -2,10 +2,19 @@ require "yaml"
 require "./croupier_generator"
 require "./importers/excel_importer"
 require "./data_dir"
-require "uuid"
+require "openssl"
 
 module Sheety
   class CLI
+    # Calculate SHA256 hash of a file for content-based caching
+    private def self.calculate_file_hash(filename : String) : String
+      digest = OpenSSL::Digest.new("SHA256")
+      File.open(filename, "rb") do |file|
+        digest.update(file)
+      end
+      digest.final.hexstring
+    end
+
     def self.run(args : Array(String))
       # Ensure data directory exists on startup
       DataDir.ensure
@@ -56,13 +65,15 @@ module Sheety
       compile_only = extra_args.includes?("--compile-only")
       interactive = !extra_args.includes?("--no-interactive")
 
-      # Generate UUID for temporary crystal file
-      uuid = UUID.random.to_s
+      # Calculate hash of source file for caching
+      file_hash = calculate_file_hash(filename)
 
-      # Output files go in data directory tmp
-      basename = File.basename(filename, ".yaml").gsub(/\.yml$/, "")
-      output_cr = File.join(DataDir.path, "tmp", "#{basename}_#{uuid}.cr")
-      binary_name = File.join(DataDir.path, "tmp", "#{basename}_#{uuid}")
+      # Use first 16 characters of hash for filename
+      hash_short = file_hash[0...16]
+
+      # Output files in data directory tmp
+      output_cr = File.join(DataDir.path, "tmp", "#{hash_short}.cr")
+      binary_name = File.join(DataDir.path, "tmp", "#{hash_short}")
 
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
@@ -81,12 +92,23 @@ module Sheety
         exit 1
       end
 
-      # Write the source file
-      File.write(output_cr, source_code)
+      # Check if source file already exists
+      if File.exists?(output_cr)
+        puts "Using cached source: #{output_cr}"
+      else
+        # Write the source file
+        File.write(output_cr, source_code)
+      end
 
-      # Build the binary
-      puts "Building #{binary_name}..."
-      build_result = Process.run("crystal", ["build", "-Dpreview_mt", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      # Check if binary already exists and is newer than source
+      if File.exists?(binary_name) && File.info(binary_name).modification_time >= File.info(output_cr).modification_time
+        puts "Using cached binary: #{binary_name}"
+        build_result = Process::Status.new(0) # Simulate success
+      else
+        # Build the binary
+        puts "Building #{binary_name}..."
+        build_result = Process.run("crystal", ["build", "-Dpreview_mt", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      end
 
       unless build_result.success?
         STDERR.puts "\nError: Build failed"
