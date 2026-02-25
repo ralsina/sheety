@@ -21,3 +21,8 @@ examples/test_sheet2
 test_excel_cr
 test_sheet_cr
 test_sheet2
+
+# Generated test files
+examples/*.cr
+examples/*_*.yaml
+examples/Sheety Test Sheet*
