@@ -12,80 +12,30 @@
 Croupier::TaskManager.set("Sheet1!A1", "100.0")
 Croupier::TaskManager.set("Sheet1!A2", "200.0")
 Croupier::TaskManager.set("Sheet1!A3", "300.0")
+Croupier::TaskManager.set("Sheet1!A4", "150.0")
 Croupier::TaskManager.set("Sheet1!B1", "Hello")
 Croupier::TaskManager.set("Sheet1!B2", "World")
 Croupier::TaskManager.set("Sheet1!C1", "5.0")
 Croupier::TaskManager.set("Sheet1!C2", "3.0")
 Croupier::TaskManager.set("Sheet2!A1", "100.0")
+Croupier::TaskManager.set("Sheet1!A5", "")
+Croupier::TaskManager.set("Sheet1!A6", "")
+Croupier::TaskManager.set("Sheet1!A7", "")
+Croupier::TaskManager.set("Sheet1!A8", "")
+Croupier::TaskManager.set("Sheet1!A9", "")
+Croupier::TaskManager.set("Sheet1!A10", "")
+Croupier::TaskManager.set("Sheet1!A11", "")
+Croupier::TaskManager.set("Sheet1!A12", "")
+Croupier::TaskManager.set("Sheet1!A13", "")
+Croupier::TaskManager.set("Sheet1!A14", "")
+Croupier::TaskManager.set("Sheet1!A15", "")
+Croupier::TaskManager.set("Sheet1!A16", "")
+Croupier::TaskManager.set("Sheet1!A17", "")
+Croupier::TaskManager.set("Sheet1!A18", "")
+Croupier::TaskManager.set("Sheet1!A19", "")
+Croupier::TaskManager.set("Sheet1!A20", "")
+Croupier::TaskManager.set("Sheet1!D3", "")
 
-
-
-        Croupier::Task.new(
-          id: "formula_Sheet1_A4",
-          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3"],
-          outputs: ["kv://Sheet1!A4"],
-        ) do
-          begin
-            result = (Sheety::Functions.sum([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || "")]))
-
-            # Convert result to string - this is what the task "outputs"
-            case result
-            when Float64
-              if result == result.to_i
-                result.to_i.to_s
-              else
-                result.to_s
-              end
-            when String
-              result
-            when Bool
-              result.upcase.to_s
-            when Sheety::Functions::ErrorValue
-              result.to_s
-            when Nil
-              ""
-            else
-              result.to_s
-            end
-          rescue e : Exception
-            "#ERROR: " + (e.message || "Unknown error")
-          end
-        end
-      
-
-
-        Croupier::Task.new(
-          id: "formula_Sheet1_A5",
-          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3"],
-          outputs: ["kv://Sheet1!A5"],
-        ) do
-          begin
-            result = (Sheety::Functions.average([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || "")]))
-
-            # Convert result to string - this is what the task "outputs"
-            case result
-            when Float64
-              if result == result.to_i
-                result.to_i.to_s
-              else
-                result.to_s
-              end
-            when String
-              result
-            when Bool
-              result.upcase.to_s
-            when Sheety::Functions::ErrorValue
-              result.to_s
-            when Nil
-              ""
-            else
-              result.to_s
-            end
-          rescue e : Exception
-            "#ERROR: " + (e.message || "Unknown error")
-          end
-        end
-      
 
 
         Croupier::Task.new(
@@ -158,11 +108,11 @@ Croupier::TaskManager.set("Sheet2!A1", "100.0")
 
         Croupier::Task.new(
           id: "formula_Sheet1_D1",
-          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3"],
+          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3", "kv://Sheet1!A4", "kv://Sheet1!A5", "kv://Sheet1!A6", "kv://Sheet1!A7", "kv://Sheet1!A8", "kv://Sheet1!A9", "kv://Sheet1!A10", "kv://Sheet1!A11", "kv://Sheet1!A12", "kv://Sheet1!A13", "kv://Sheet1!A14", "kv://Sheet1!A15", "kv://Sheet1!A16", "kv://Sheet1!A17", "kv://Sheet1!A18", "kv://Sheet1!A19", "kv://Sheet1!A20"],
           outputs: ["kv://Sheet1!D1"],
         ) do
           begin
-            result = (Sheety::Functions.max([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || "")]))
+            result = (Sheety::Functions.max([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || ""), (Croupier::TaskManager.get("Sheet1!A4") || ""), (Croupier::TaskManager.get("Sheet1!A5") || ""), (Croupier::TaskManager.get("Sheet1!A6") || ""), (Croupier::TaskManager.get("Sheet1!A7") || ""), (Croupier::TaskManager.get("Sheet1!A8") || ""), (Croupier::TaskManager.get("Sheet1!A9") || ""), (Croupier::TaskManager.get("Sheet1!A10") || ""), (Croupier::TaskManager.get("Sheet1!A11") || ""), (Croupier::TaskManager.get("Sheet1!A12") || ""), (Croupier::TaskManager.get("Sheet1!A13") || ""), (Croupier::TaskManager.get("Sheet1!A14") || ""), (Croupier::TaskManager.get("Sheet1!A15") || ""), (Croupier::TaskManager.get("Sheet1!A16") || ""), (Croupier::TaskManager.get("Sheet1!A17") || ""), (Croupier::TaskManager.get("Sheet1!A18") || ""), (Croupier::TaskManager.get("Sheet1!A19") || ""), (Croupier::TaskManager.get("Sheet1!A20") || "")]))
 
             # Convert result to string - this is what the task "outputs"
             case result
@@ -192,11 +142,79 @@ Croupier::TaskManager.set("Sheet2!A1", "100.0")
 
         Croupier::Task.new(
           id: "formula_Sheet1_D2",
-          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3"],
+          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3", "kv://Sheet1!A4", "kv://Sheet1!A5", "kv://Sheet1!A6", "kv://Sheet1!A7", "kv://Sheet1!A8", "kv://Sheet1!A9", "kv://Sheet1!A10", "kv://Sheet1!A11", "kv://Sheet1!A12", "kv://Sheet1!A13", "kv://Sheet1!A14", "kv://Sheet1!A15", "kv://Sheet1!A16", "kv://Sheet1!A17", "kv://Sheet1!A18", "kv://Sheet1!A19", "kv://Sheet1!A20"],
           outputs: ["kv://Sheet1!D2"],
         ) do
           begin
-            result = (Sheety::Functions.min([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || "")]))
+            result = (Sheety::Functions.min([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || ""), (Croupier::TaskManager.get("Sheet1!A4") || ""), (Croupier::TaskManager.get("Sheet1!A5") || ""), (Croupier::TaskManager.get("Sheet1!A6") || ""), (Croupier::TaskManager.get("Sheet1!A7") || ""), (Croupier::TaskManager.get("Sheet1!A8") || ""), (Croupier::TaskManager.get("Sheet1!A9") || ""), (Croupier::TaskManager.get("Sheet1!A10") || ""), (Croupier::TaskManager.get("Sheet1!A11") || ""), (Croupier::TaskManager.get("Sheet1!A12") || ""), (Croupier::TaskManager.get("Sheet1!A13") || ""), (Croupier::TaskManager.get("Sheet1!A14") || ""), (Croupier::TaskManager.get("Sheet1!A15") || ""), (Croupier::TaskManager.get("Sheet1!A16") || ""), (Croupier::TaskManager.get("Sheet1!A17") || ""), (Croupier::TaskManager.get("Sheet1!A18") || ""), (Croupier::TaskManager.get("Sheet1!A19") || ""), (Croupier::TaskManager.get("Sheet1!A20") || "")]))
+
+            # Convert result to string - this is what the task "outputs"
+            case result
+            when Float64
+              if result == result.to_i
+                result.to_i.to_s
+              else
+                result.to_s
+              end
+            when String
+              result
+            when Bool
+              result.upcase.to_s
+            when Sheety::Functions::ErrorValue
+              result.to_s
+            when Nil
+              ""
+            else
+              result.to_s
+            end
+          rescue e : Exception
+            "#ERROR: " + (e.message || "Unknown error")
+          end
+        end
+      
+
+
+        Croupier::Task.new(
+          id: "formula_Sheet1_D3",
+          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3", "kv://Sheet1!A4", "kv://Sheet1!A5", "kv://Sheet1!A6", "kv://Sheet1!A7", "kv://Sheet1!A8", "kv://Sheet1!A9", "kv://Sheet1!A10", "kv://Sheet1!A11", "kv://Sheet1!A12", "kv://Sheet1!A13", "kv://Sheet1!A14", "kv://Sheet1!A15", "kv://Sheet1!A16", "kv://Sheet1!A17", "kv://Sheet1!A18", "kv://Sheet1!A19", "kv://Sheet1!A20"],
+          outputs: ["kv://Sheet1!D3"],
+        ) do
+          begin
+            result = (Sheety::Functions.sum([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || ""), (Croupier::TaskManager.get("Sheet1!A4") || ""), (Croupier::TaskManager.get("Sheet1!A5") || ""), (Croupier::TaskManager.get("Sheet1!A6") || ""), (Croupier::TaskManager.get("Sheet1!A7") || ""), (Croupier::TaskManager.get("Sheet1!A8") || ""), (Croupier::TaskManager.get("Sheet1!A9") || ""), (Croupier::TaskManager.get("Sheet1!A10") || ""), (Croupier::TaskManager.get("Sheet1!A11") || ""), (Croupier::TaskManager.get("Sheet1!A12") || ""), (Croupier::TaskManager.get("Sheet1!A13") || ""), (Croupier::TaskManager.get("Sheet1!A14") || ""), (Croupier::TaskManager.get("Sheet1!A15") || ""), (Croupier::TaskManager.get("Sheet1!A16") || ""), (Croupier::TaskManager.get("Sheet1!A17") || ""), (Croupier::TaskManager.get("Sheet1!A18") || ""), (Croupier::TaskManager.get("Sheet1!A19") || ""), (Croupier::TaskManager.get("Sheet1!A20") || "")]))
+
+            # Convert result to string - this is what the task "outputs"
+            case result
+            when Float64
+              if result == result.to_i
+                result.to_i.to_s
+              else
+                result.to_s
+              end
+            when String
+              result
+            when Bool
+              result.upcase.to_s
+            when Sheety::Functions::ErrorValue
+              result.to_s
+            when Nil
+              ""
+            else
+              result.to_s
+            end
+          rescue e : Exception
+            "#ERROR: " + (e.message || "Unknown error")
+          end
+        end
+      
+
+
+        Croupier::Task.new(
+          id: "formula_Sheet1_D4",
+          inputs: ["kv://Sheet1!A1", "kv://Sheet1!A2", "kv://Sheet1!A3", "kv://Sheet1!A4", "kv://Sheet1!A5", "kv://Sheet1!A6", "kv://Sheet1!A7", "kv://Sheet1!A8", "kv://Sheet1!A9", "kv://Sheet1!A10", "kv://Sheet1!A11", "kv://Sheet1!A12", "kv://Sheet1!A13", "kv://Sheet1!A14", "kv://Sheet1!A15", "kv://Sheet1!A16", "kv://Sheet1!A17", "kv://Sheet1!A18", "kv://Sheet1!A19", "kv://Sheet1!A20"],
+          outputs: ["kv://Sheet1!D4"],
+        ) do
+          begin
+            result = (Sheety::Functions.average([(Croupier::TaskManager.get("Sheet1!A1") || ""), (Croupier::TaskManager.get("Sheet1!A2") || ""), (Croupier::TaskManager.get("Sheet1!A3") || ""), (Croupier::TaskManager.get("Sheet1!A4") || ""), (Croupier::TaskManager.get("Sheet1!A5") || ""), (Croupier::TaskManager.get("Sheet1!A6") || ""), (Croupier::TaskManager.get("Sheet1!A7") || ""), (Croupier::TaskManager.get("Sheet1!A8") || ""), (Croupier::TaskManager.get("Sheet1!A9") || ""), (Croupier::TaskManager.get("Sheet1!A10") || ""), (Croupier::TaskManager.get("Sheet1!A11") || ""), (Croupier::TaskManager.get("Sheet1!A12") || ""), (Croupier::TaskManager.get("Sheet1!A13") || ""), (Croupier::TaskManager.get("Sheet1!A14") || ""), (Croupier::TaskManager.get("Sheet1!A15") || ""), (Croupier::TaskManager.get("Sheet1!A16") || ""), (Croupier::TaskManager.get("Sheet1!A17") || ""), (Croupier::TaskManager.get("Sheet1!A18") || ""), (Croupier::TaskManager.get("Sheet1!A19") || ""), (Croupier::TaskManager.get("Sheet1!A20") || "")]))
 
             # Convert result to string - this is what the task "outputs"
             case result
@@ -226,11 +244,11 @@ Croupier::TaskManager.set("Sheet2!A1", "100.0")
 
         Croupier::Task.new(
           id: "formula_Sheet2_A2",
-          inputs: ["kv://Sheet1!A4"],
+          inputs: ["kv://Sheet1!D3"],
           outputs: ["kv://Sheet2!A2"],
         ) do
           begin
-            result = (begin; ln = Sheety::Functions.to_float((Croupier::TaskManager.get("Sheet1!A4") || "")); rn = Sheety::Functions.to_float(2.0); (ln && rn) ? (ln * rn).to_s : nil; end)
+            result = (begin; ln = Sheety::Functions.to_float((Croupier::TaskManager.get("Sheet1!D3") || "")); rn = Sheety::Functions.to_float(2.0); (ln && rn) ? (ln * rn).to_s : nil; end)
 
             # Convert result to string - this is what the task "outputs"
             case result
@@ -298,15 +316,16 @@ Croupier::TaskManager.run_tasks
 
 # Collect cell data for TUI
   sheet_Sheet1_data = [
-            {cell: "A4", formula: "=SUM(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A4") || ""},
-          {cell: "A5", formula: "=AVERAGE(A1:A3)", value: Croupier::TaskManager.get("Sheet1!A5") || ""},
-          {cell: "B3", formula: "=CONCAT(B1,\" \",B2)", value: Croupier::TaskManager.get("Sheet1!B3") || ""},
+            {cell: "B3", formula: "=CONCAT(B1,\" \",B2)", value: Croupier::TaskManager.get("Sheet1!B3") || ""},
           {cell: "C3", formula: "=IF(C1>C2,\"Yes\",\"No\")", value: Croupier::TaskManager.get("Sheet1!C3") || ""},
-          {cell: "D1", formula: "=MAX(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D1") || ""},
-          {cell: "D2", formula: "=MIN(A1:A3)", value: Croupier::TaskManager.get("Sheet1!D2") || ""},
+          {cell: "D1", formula: "=MAX(A1:A20)", value: Croupier::TaskManager.get("Sheet1!D1") || ""},
+          {cell: "D2", formula: "=MIN(A1:A20)", value: Croupier::TaskManager.get("Sheet1!D2") || ""},
+          {cell: "D3", formula: "=SUM(A1:A20)", value: Croupier::TaskManager.get("Sheet1!D3") || ""},
+          {cell: "D4", formula: "=AVERAGE(A1:A20)", value: Croupier::TaskManager.get("Sheet1!D4") || ""},
           {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet1!A1") || ""},
           {cell: "A2", formula: "", value: Croupier::TaskManager.get("Sheet1!A2") || ""},
           {cell: "A3", formula: "", value: Croupier::TaskManager.get("Sheet1!A3") || ""},
+          {cell: "A4", formula: "", value: Croupier::TaskManager.get("Sheet1!A4") || ""},
           {cell: "B1", formula: "", value: Croupier::TaskManager.get("Sheet1!B1") || ""},
           {cell: "B2", formula: "", value: Croupier::TaskManager.get("Sheet1!B2") || ""},
           {cell: "C1", formula: "", value: Croupier::TaskManager.get("Sheet1!C1") || ""},
@@ -314,7 +333,7 @@ Croupier::TaskManager.run_tasks
           ]
 
   sheet_Sheet2_data = [
-            {cell: "A2", formula: "=Sheet1!A4*2", value: Croupier::TaskManager.get("Sheet2!A2") || ""},
+            {cell: "A2", formula: "=Sheet1!D3*2", value: Croupier::TaskManager.get("Sheet2!A2") || ""},
           {cell: "A3", formula: "=SUM(Sheet1!A1:A2)", value: Croupier::TaskManager.get("Sheet2!A3") || ""},
           {cell: "A1", formula: "", value: Croupier::TaskManager.get("Sheet2!A1") || ""}
           ]

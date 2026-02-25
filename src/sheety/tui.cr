@@ -18,9 +18,9 @@ module Sheety
     @header_height : Int32
     @status_height : Int32
 
-    # Grid dimensions
-    @max_row : Int32 = 0
-    @max_col : Int32 = 0
+    # Grid dimensions (fixed size)
+    @max_row : Int32 = 1000
+    @max_col : Int32 = 1000
     @grid : Array(Array(String)) = [] of Array(String)
 
     # Color scheme
@@ -57,7 +57,8 @@ module Sheety
 
       # Layout constants
       @cell_width = 12
-      @row_num_width = 5
+      @row_num_width = 4
+      @spacer_width = 1
       @header_height = 1
       @status_height = 2
       @formula_bar_height = 1
@@ -117,52 +118,41 @@ module Sheety
       sheet_name = @sheets[@current_sheet_idx]
       data = @sheet_data[sheet_name]?
 
-      if data.nil? || data.empty?
-        @max_row = 0
-        @max_col = 0
-        @grid = [] of Array(String)
-        return
-      end
-
-      # Find grid dimensions
-      @max_row = 0
-      @max_col = 0
-
-      data.each do |cell|
-        if match = cell[:cell].match(/^([A-Z]+)(\d+)$/)
-          col = match[1]
-          row = match[2].to_i
-
-          # Convert column to number
-          col_num = col_to_num(col)
-
-          @max_col = col_num if col_num > @max_col
-          @max_row = row if row > @max_row
-        end
-      end
-
-      # Create grid
+      # Create fixed 1000x1000 grid filled with empty strings
       @grid = Array.new(@max_row) { Array.new(@max_col, "") }
 
-      # Fill grid with values
-      data.each do |cell|
-        if match = cell[:cell].match(/^([A-Z]+)(\d+)$/)
-          col = match[1]
-          row = match[2].to_i - 1 # Convert to 0-indexed
-          col_num = col_to_num(col) - 1
+      # If no data and no callback, we're done
+      return if data.nil? || data.empty?
 
-          # Get value: try callback first, fall back to stored value
+      # Build a map of cells with their formulas for quick lookup
+      cell_map = {} of String => NamedTuple(formula: String, value: String)
+      data.each do |cell|
+        cell_map[cell[:cell]] = {formula: cell[:formula], value: cell[:value]}
+      end
+
+      # Fill grid by checking all cells that have either data or might have values in Croupier
+      (0...@max_row).each do |row|
+        (0...@max_col).each do |col|
+          # Convert to cell reference
+          cell_ref = num_to_col(col + 1) + (row + 1).to_s
+
+          # Try to get value from callback first (for edited cells), then from data
           value = if callback = @value_getter_callback
-                    fetched = callback.call(sheet_name, cell[:cell])
-                    fetched.empty? ? cell[:value] : fetched
+                    fetched = callback.call(sheet_name, cell_ref)
+                    unless fetched.empty?
+                      fetched
+                    else
+                      # Not in store, check original data
+                      cell_data = cell_map[cell_ref]?
+                      cell_data ? cell_data[:value] : ""
+                    end
                   else
-                    cell[:value]
+                    # No callback, use original data
+                    cell_data = cell_map[cell_ref]?
+                    cell_data ? cell_data[:value] : ""
                   end
 
-          # Show calculated result for formulas, or just value
-          display = value
-
-          @grid[row][col_num] = display if row < @max_row && col_num < @max_col
+          @grid[row][col] = value unless value.empty?
         end
       end
     end
@@ -268,8 +258,6 @@ module Sheety
     end
 
     private def adjust_row_offset : Nil
-      return if @max_row == 0
-
       # Keep active cell visible
       if @active_row < @row_offset
         @row_offset = @active_row
@@ -279,10 +267,8 @@ module Sheety
     end
 
     private def adjust_col_offset : Nil
-      return if @max_col == 0
-
       # Calculate how many columns fit
-      cols_per_screen = (@grid_width - @row_num_width) // (@cell_width + 1)
+      cols_per_screen = (@grid_width - @row_num_width - @spacer_width) // (@cell_width + 1)
 
       # Keep active cell visible
       if @active_col < @col_offset
@@ -418,17 +404,15 @@ module Sheety
     end
 
     private def render_grid : Nil
-      return if @max_row == 0 || @max_col == 0
-
       # Calculate visible columns
-      cols_per_screen = (@grid_width - @row_num_width) // (@cell_width + 1)
+      cols_per_screen = (@grid_width - @row_num_width - @spacer_width) // (@cell_width + 1)
       end_col = {@col_offset + cols_per_screen, @max_col}.min
 
       # Render column headers (A, B, C, ...)
-      col_x = @row_num_width
+      col_x = @row_num_width + @spacer_width
       (@col_offset...end_col).each do |col_idx|
         col_label = num_to_col(col_idx + 1)
-        draw_text_centered(col_x, @header_height, @cell_width, col_label, @fg_header, @bg_header, Termisu::Attribute::Bold)
+        draw_text_centered(col_x, @header_height, @cell_width, col_label, @fg_header, @bg_header, Termisu::Attribute::Bold | Termisu::Attribute::Reverse)
         col_x += @cell_width + 1
       end
 
@@ -437,28 +421,35 @@ module Sheety
         grid_row = @row_offset + screen_row
         break if grid_row >= @max_row
 
-        # Row number
-        row_label = (grid_row + 1).to_s
-        row_x = 0
+        # Row number (right-aligned in 4 characters)
+        row_label = (grid_row + 1).to_s.rjust(@row_num_width)
         row_label.each_char_with_index do |char, i|
-          @termisu.set_cell(row_x + i, @header_height + 1 + screen_row, char, fg: @fg_header, bg: @bg_header, attr: Termisu::Attribute::Bold)
+          @termisu.set_cell(i, @header_height + 1 + screen_row, char, fg: @fg_header, bg: @bg_header, attr: Termisu::Attribute::Bold | Termisu::Attribute::Reverse)
         end
 
-        # Fill rest of row number area
-        (row_label.size...@row_num_width).each do |i|
-          @termisu.set_cell(i, @header_height + 1 + screen_row, ' ', fg: @fg_header, bg: @bg_header)
-        end
+        # Empty spacer column
+        @termisu.set_cell(@row_num_width, @header_height + 1 + screen_row, ' ', fg: @fg_default, bg: @bg_default)
 
         # Cells
-        col_x = @row_num_width
+        col_x = @row_num_width + @spacer_width
         (@col_offset...end_col).each do |col_idx|
           break if col_idx >= @max_col
 
           cell_value = @grid[grid_row][col_idx]
           is_active = grid_row == @active_row && col_idx == @active_col
 
+          # Check if value is numeric for right-alignment
+          is_numeric = cell_value.match(/^\s*-?\d+\.?\d*\s*$/)
+
           # Truncate value to fit
-          display_value = truncate_value(cell_value, @cell_width)
+          if is_numeric
+            # Right-align numeric values
+            truncated = truncate_value(cell_value, @cell_width)
+            display_value = truncated.rjust(@cell_width)
+          else
+            # Left-align text values
+            display_value = truncate_value(cell_value, @cell_width)
+          end
 
           # Determine color
           fg = @fg_default
@@ -472,9 +463,16 @@ module Sheety
           end
 
           # Draw cell
-          (0...@cell_width).each do |i|
-            char = i < display_value.size ? display_value[i] : ' '
+          display_value.each_char_with_index do |char, i|
+            break if i >= @cell_width
             @termisu.set_cell(col_x + i, @header_height + 1 + screen_row, char, fg: fg, bg: bg, attr: attr)
+          end
+
+          # Fill remaining cell width with spaces
+          if display_value.size < @cell_width
+            (display_value.size...@cell_width).each do |i|
+              @termisu.set_cell(col_x + i, @header_height + 1 + screen_row, ' ', fg: fg, bg: bg, attr: attr)
+            end
           end
 
           # Separator
@@ -557,11 +555,7 @@ module Sheety
       sheet_name = @sheets[@current_sheet_idx]
       cell_ref = num_to_col(@active_col + 1) + (@active_row + 1).to_s
 
-      if @max_row == 0 || @max_col == 0
-        status_text = "Empty sheet"
-      else
-        status_text = "#{sheet_name}!#{cell_ref}"
-      end
+      status_text = "#{sheet_name}!#{cell_ref}"
 
       # Draw status bar background
       (0...@grid_width).each do |i|

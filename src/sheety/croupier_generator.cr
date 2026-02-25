@@ -166,19 +166,43 @@ module Sheety
 
     # Generate code to set initial values
     private def generate_setup_code(initial_values : Hash(String, Float64 | String | Bool)) : String
-      value_assignments = initial_values.map do |key, value|
+      # Collect ALL cell references from formulas to ensure dependencies exist
+      all_referenced_cells = Set(String).new
+
+      @formulas.each do |_, info|
+        formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
+        ast = parse_formula(formula)
+        next if ast.nil?
+
+        # Extract dependencies including expanded ranges
+        dependencies = @extractor.extract(ast, info.sheet)
+        dependencies.each { |dep| all_referenced_cells << dep }
+      end
+
+      # Generate assignments for initial values
+      value_assignments = [] of String
+
+      # First, set user-provided values
+      initial_values.each do |key, value|
         value_str = case value
-                    when Float64 then value.to_s.inspect # Wrap in quotes
+                    when Float64 then value.to_s.inspect
                     when String  then value.inspect
                     when Bool    then value.to_s
                     else              "\"\""
                     end
-        "Croupier::TaskManager.set(#{key.inspect}, #{value_str})"
-      end.join("\n")
+        value_assignments << "Croupier::TaskManager.set(#{key.inspect}, #{value_str})"
+      end
+
+      # Then, initialize any missing referenced cells with empty string
+      all_referenced_cells.each do |cell_ref|
+        unless initial_values.has_key?(cell_ref)
+          value_assignments << "Croupier::TaskManager.set(#{cell_ref.inspect}, \"\")"
+        end
+      end
 
       setup = %{
 # Set initial cell values
-#{value_assignments}
+#{value_assignments.join("\n")}
 }
 
       setup
