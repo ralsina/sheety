@@ -449,8 +449,30 @@ sheet_data = {
     #{sheets_data_init}
   }
 
-# Launch TUI
-tui = Sheety::TUI.new(sheets, sheet_data)
+# Create TUI instance
+tui = Sheety::TUI.new(sheets, sheet_data) do |sheet, cell_ref, new_value|
+  # Update callback: called when user saves a cell edit
+  full_key = sheet.empty? ? cell_ref : sheet + "!" + cell_ref
+
+  # Update the value in Croupier store
+  Croupier::TaskManager.set(full_key, new_value)
+
+  # Re-run dependent tasks
+  Croupier::TaskManager.run_tasks
+end
+
+# Set value getter callback to fetch fresh values from Croupier store
+tui.set_value_getter do |sheet, cell_ref|
+  full_key = sheet.empty? ? cell_ref : sheet + "!" + cell_ref
+  Croupier::TaskManager.get(full_key) || ""
+end
+
+# Set refresh callback to refresh the grid after updates
+tui.set_refresh_callback do
+  tui.refresh_current_sheet
+end
+
+# Run the TUI
 tui.run
 }
     end

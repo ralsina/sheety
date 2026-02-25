@@ -35,7 +35,17 @@ module Sheety
     @fg_formula : Termisu::Color
     @fg_value : Termisu::Color
 
-    def initialize(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))))
+    # Edit mode
+    @edit_mode : Bool = false
+    @edit_buffer : String = ""
+    @formula_bar_height : Int32 = 1
+
+    # Callback for updating cell values
+    @value_update_callback : Proc(String, String, String, Nil)?
+    @refresh_callback : Proc(Nil)?
+    @value_getter_callback : Proc(String, String, String)?
+
+    def initialize(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), update_callback : Proc(String, String, String, Nil) = ->(_s : String, _c : String, _v : String) {})
       @termisu = Termisu.new
       @sheets = sheets.sort
       @sheet_data = sheet_data
@@ -50,11 +60,12 @@ module Sheety
       @row_num_width = 5
       @header_height = 1
       @status_height = 2
+      @formula_bar_height = 1
 
       # Get terminal size
       term_size = @termisu.size
       @grid_width = term_size[0]
-      @grid_height = term_size[1] - @header_height - @status_height
+      @grid_height = term_size[1] - @header_height - @status_height - @formula_bar_height
 
       # Colors (Lotus 1-2-3 inspired)
       @fg_default = Termisu::Color.white
@@ -68,8 +79,17 @@ module Sheety
       @fg_formula = Termisu::Color.green
       @fg_value = Termisu::Color.white
 
+      # Initialize callbacks
+      @value_update_callback = update_callback
+      @refresh_callback = nil
+      @value_getter_callback = ->(_sheet : String, _cell : String) { "" }
+
       # Initialize grid for current sheet
       initialize_grid
+    end
+
+    def self.new(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), &block : Proc(String, String, String, Nil))
+      new(sheets, sheet_data, block)
     end
 
     def run : Nil
@@ -131,7 +151,13 @@ module Sheety
           row = match[2].to_i - 1 # Convert to 0-indexed
           col_num = col_to_num(col) - 1
 
-          value = cell[:value]
+          # Get value: try callback first, fall back to stored value
+          value = if callback = @value_getter_callback
+                    fetched = callback.call(sheet_name, cell[:cell])
+                    fetched.empty? ? cell[:value] : fetched
+                  else
+                    cell[:value]
+                  end
 
           # Show calculated result for formulas, or just value
           display = value
@@ -161,10 +187,24 @@ module Sheety
     end
 
     private def handle_key_event(event : Termisu::Event::Key) : Nil
+      if @edit_mode
+        handle_edit_key_event(event)
+      else
+        handle_normal_key_event(event)
+      end
+    end
+
+    private def handle_normal_key_event(event : Termisu::Event::Key) : Nil
       case event.key
-      when .q?, .escape?
+      when .q?
         @termisu.close
         exit 0
+      when .escape?
+        @termisu.close
+        exit 0
+      when .enter?
+        # Enter edit mode
+        enter_edit_mode
       when .up?
         move_active(-1, 0)
       when .down?
@@ -191,6 +231,31 @@ module Sheety
       when .back_tab?
         # Previous sheet
         switch_sheet(-1)
+      end
+    end
+
+    private def handle_edit_key_event(event : Termisu::Event::Key) : Nil
+      case event.key
+      when .escape?
+        # Cancel edit mode
+        @edit_mode = false
+        @edit_buffer = ""
+      when .enter?
+        # Save and exit edit mode
+        save_edit_value
+        @edit_mode = false
+        @edit_buffer = ""
+      when .backspace?
+        # Delete last character
+        @edit_buffer = @edit_buffer[0...-1]
+      else
+        # Check if this is a printable character
+        if char = event.char
+          # Don't include control characters
+          if char.printable?
+            @edit_buffer += char
+          end
+        end
       end
     end
 
@@ -241,9 +306,82 @@ module Sheety
       initialize_grid
     end
 
+    private def current_cell_ref : String
+      num_to_col(@active_col + 1) + (@active_row + 1).to_s
+    end
+
+    private def current_cell_formula : String
+      sheet_name = @sheets[@current_sheet_idx]
+      data = @sheet_data[sheet_name]?
+      return "" if data.nil?
+
+      cell_ref = current_cell_ref
+      data.each do |cell|
+        if cell[:cell] == cell_ref
+          return cell[:formula]
+        end
+      end
+      ""
+    end
+
+    private def current_cell_value : String
+      return @grid[@active_row][@active_col] if @active_row < @max_row && @active_col < @max_col
+      ""
+    end
+
+    private def formula_cell? : Bool
+      !current_cell_formula.empty?
+    end
+
+    private def enter_edit_mode : Nil
+      # Check if current cell is a formula cell (locked)
+      if formula_cell?
+        # Formula cells are locked, don't enter edit mode
+        return
+      end
+
+      @edit_mode = true
+      # Initialize edit buffer with current value
+      @edit_buffer = current_cell_value
+    end
+
+    private def save_edit_value : Nil
+      return if formula_cell?
+
+      sheet_name = @sheets[@current_sheet_idx]
+      cell_ref = current_cell_ref
+
+      # Call the update callback if provided
+      if callback = @value_update_callback
+        callback.call(sheet_name, cell_ref, @edit_buffer)
+      end
+
+      # Call the refresh callback if provided to update the grid from store
+      if refresh_cb = @refresh_callback
+        refresh_cb.call
+      else
+        # Fallback: just update the local grid
+        if @active_row < @max_row && @active_col < @max_col
+          @grid[@active_row][@active_col] = @edit_buffer
+        end
+      end
+    end
+
+    def set_refresh_callback(&callback : Proc(Nil))
+      @refresh_callback = callback
+    end
+
+    def set_value_getter(&callback : Proc(String, String, String))
+      @value_getter_callback = callback
+    end
+
+    def refresh_current_sheet : Nil
+      initialize_grid
+    end
+
     private def handle_resize(event : Termisu::Event::Resize) : Nil
       @grid_width = event.width
-      @grid_height = event.height - @header_height - @status_height
+      @grid_height = event.height - @header_height - @status_height - @formula_bar_height
     end
 
     private def should_render?(event : Termisu::Event::Key) : Bool
@@ -255,6 +393,7 @@ module Sheety
       @termisu.clear
       render_header
       render_grid
+      render_formula_bar
       render_status
       @termisu.render
     end
@@ -348,32 +487,80 @@ module Sheety
       end
     end
 
+    private def render_formula_bar : Nil
+      formula_y = @header_height + 1 + @grid_height
+
+      # Draw formula bar background
+      (0...@grid_width).each do |i|
+        @termisu.set_cell(i, formula_y, ' ', fg: @fg_default, bg: @bg_default)
+      end
+
+      # Get current cell info
+      cell_ref = current_cell_ref
+      formula = current_cell_formula
+
+      if @edit_mode
+        # Edit mode: show the edit buffer
+        label = "Editing #{cell_ref}: "
+        label.each_char_with_index do |char, i|
+          break if i >= @grid_width
+          @termisu.set_cell(i, formula_y, char, fg: @fg_header, bg: @bg_default, attr: Termisu::Attribute::Bold)
+        end
+
+        # Show edit buffer
+        display_buffer = truncate_value(@edit_buffer, @grid_width - label.size)
+        display_buffer.each_char_with_index do |char, i|
+          x = label.size + i
+          break if x >= @grid_width
+          @termisu.set_cell(x, formula_y, char, fg: @fg_active, bg: @bg_default, attr: Termisu::Attribute::Bold)
+        end
+      else
+        # Normal mode: show formula or value
+        if formula.empty?
+          # Value cell - show the value
+          label = "#{cell_ref}: "
+          value = current_cell_value
+
+          label.each_char_with_index do |char, i|
+            break if i >= @grid_width
+            @termisu.set_cell(i, formula_y, char, fg: @fg_header, bg: @bg_default, attr: Termisu::Attribute::Bold)
+          end
+
+          display_value = truncate_value(value, @grid_width - label.size)
+          display_value.each_char_with_index do |char, i|
+            x = label.size + i
+            break if x >= @grid_width
+            @termisu.set_cell(x, formula_y, char, fg: @fg_value, bg: @bg_default)
+          end
+        else
+          # Formula cell - show formula and value
+          label = "#{cell_ref} [Formula]: "
+          formula_display = truncate_value(formula, @grid_width - label.size)
+
+          label.each_char_with_index do |char, i|
+            break if i >= @grid_width
+            @termisu.set_cell(i, formula_y, char, fg: @fg_formula, bg: @bg_default, attr: Termisu::Attribute::Bold)
+          end
+
+          formula_display.each_char_with_index do |char, i|
+            x = label.size + i
+            break if x >= @grid_width
+            @termisu.set_cell(x, formula_y, char, fg: @fg_formula, bg: @bg_default)
+          end
+        end
+      end
+    end
+
     private def render_status : Nil
-      status_y = @header_height + 1 + @grid_height
+      status_y = @header_height + 1 + @grid_height + @formula_bar_height
 
       sheet_name = @sheets[@current_sheet_idx]
       cell_ref = num_to_col(@active_col + 1) + (@active_row + 1).to_s
 
       if @max_row == 0 || @max_col == 0
         status_text = "Empty sheet"
-        formula_text = ""
       else
-        cell_value = @grid[@active_row][@active_col]
-
-        # Find formula for this cell
-        data = @sheet_data[sheet_name]?
-        formula = ""
-        if data
-          data.each do |cell|
-            if cell[:cell] == cell_ref
-              formula = cell[:formula]
-              break
-            end
-          end
-        end
-
         status_text = "#{sheet_name}!#{cell_ref}"
-        formula_text = formula.empty? ? "Value: #{cell_value}" : "Formula: #{formula} = #{cell_value}"
       end
 
       # Draw status bar background
@@ -387,20 +574,8 @@ module Sheety
         @termisu.set_cell(i, status_y, char, fg: @fg_status, bg: @bg_status, attr: Termisu::Attribute::Bold)
       end
 
-      # Draw formula bar
-      if status_y + 1 < @termisu.size[1]
-        (0...@grid_width).each do |i|
-          @termisu.set_cell(i, status_y + 1, ' ', fg: @fg_status, bg: @bg_status)
-        end
-
-        formula_text.each_char_with_index do |char, i|
-          break if i >= @grid_width
-          @termisu.set_cell(i, status_y + 1, char, fg: @fg_status, bg: @bg_status)
-        end
-      end
-
-      # Draw help hints on the right
-      help_text = "Arrows:Move | Tab:Sheet | Q:Quit"
+      # Draw help hints
+      help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Tab:Sheet | Q:Quit"
       help_x = {@grid_width - help_text.size, 0}.max
 
       help_text.each_char_with_index do |char, i|
