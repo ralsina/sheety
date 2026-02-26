@@ -24,17 +24,25 @@ module Sheety
     @generator : CodeGenerator
     @extractor : DependencyExtractor
     @state_file_path : String?
+    @kv_store_path : String?
 
     def initialize
       @formulas = Hash(String, FormulaInfo).new
       @generator = CodeGenerator.new
       @extractor = DependencyExtractor.new
       @state_file_path = nil
+      @kv_store_path = nil
     end
 
     # Set the path for the .croupier state file
     def set_state_file_path(path : String) : self
       @state_file_path = path
+      self
+    end
+
+    # Set the path for the persistent k/v store
+    def set_kv_store_path(path : String) : self
+      @kv_store_path = path
       self
     end
 
@@ -160,6 +168,12 @@ module Sheety
       if @state_file_path
         source += "# Configure Croupier state file path\n"
         source += "Croupier::TaskManager.state_file = #{@state_file_path.inspect}\n\n"
+      end
+
+      # Configure persistent k/v store if set
+      if @kv_store_path
+        source += "# Configure persistent k/v store for caching results across runs\n"
+        source += "Croupier::TaskManager.use_persistent_store(#{@kv_store_path.inspect})\n\n"
       end
 
       source += "\n"
