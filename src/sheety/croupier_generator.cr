@@ -172,6 +172,19 @@ module Sheety
       source += generate_setup_code(initial_values)
       source += "\n\n"
 
+      # Ensure directories exist for state files
+      if @state_file_path || @kv_store_path
+        source += "# Ensure parent directories exist for state files\n"
+        if @state_file_path
+          source += "state_dir = File.dirname(#{@state_file_path.inspect})\n"
+          source += "Dir.mkdir_p(state_dir) unless Dir.exists?(state_dir)\n"
+        end
+        if @kv_store_path
+          source += "Dir.mkdir_p(#{@kv_store_path.inspect}) unless Dir.exists?(#{@kv_store_path.inspect})\n"
+        end
+        source += "\n"
+      end
+
       # Configure state file path if set
       if @state_file_path
         source += "# Configure Croupier state file path\n"
