@@ -23,11 +23,19 @@ module Sheety
     @formulas : Hash(String, FormulaInfo)
     @generator : CodeGenerator
     @extractor : DependencyExtractor
+    @state_file_path : String?
 
     def initialize
       @formulas = Hash(String, FormulaInfo).new
       @generator = CodeGenerator.new
       @extractor = DependencyExtractor.new
+      @state_file_path = nil
+    end
+
+    # Set the path for the .croupier state file
+    def set_state_file_path(path : String) : self
+      @state_file_path = path
+      self
     end
 
     # Add a formula to be converted to a task
@@ -147,6 +155,14 @@ module Sheety
       # First add setup code (initial values)
       source += generate_setup_code(initial_values)
       source += "\n\n"
+
+      # Configure state file path if set
+      if @state_file_path
+        source += "# Configure Croupier state file path\n"
+        source += "Croupier::TaskManager.state_file = #{@state_file_path.inspect}\n\n"
+      end
+
+      source += "\n"
 
       # Then add task definitions
       @formulas.each do |_, info|

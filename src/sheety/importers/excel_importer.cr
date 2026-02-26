@@ -1,6 +1,6 @@
 require "xlsx-parser"
 require "./excel_types"
-require "../../../lib/xlsx_parser_ext/formula_extractor"
+require "./formula_extractor"
 
 module Sheety
   class ExcelImporter
@@ -29,7 +29,7 @@ module Sheety
           values = extract_values_from_sheet(xlsx_sheet)
 
           # Extract formulas from XML
-          formulas = XlsxParserExt::FormulaExtractor.extract(filename, index)
+          formulas = Sheety::FormulaExtractor.extract(filename, index)
 
           # Merge into ExcelCell structures
           cells = merge_values_and_formulas(values, formulas)

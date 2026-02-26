@@ -74,9 +74,11 @@ module Sheety
       # Output files in data directory tmp
       output_cr = File.join(DataDir.path, "tmp", "#{hash_short}.cr")
       binary_name = File.join(DataDir.path, "tmp", "#{hash_short}")
+      croupier_state = File.join(DataDir.path, "tmp", "#{hash_short}.croupier")
 
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
+      generator.set_state_file_path(croupier_state)
       initial_values = Hash(String, Float64 | String | Bool).new
 
       # Load YAML file and process

@@ -1,10 +1,7 @@
 require "compress/zip"
 require "xml"
 
-module XlsxParserExt
-  # Extracts formulas from Excel worksheet XML files
-  # Excel stores formulas in <f> elements within <c> (cell) elements
-  # Format: <c r="A1"><f>SUM(B1:B10)</f><v>550</v></c>
+module Sheety
   class FormulaExtractor
     # Extract formulas from a specific worksheet in an xlsx file
     # Returns a hash mapping cell references to formula strings
@@ -30,46 +27,31 @@ module XlsxParserExt
       formulas
     end
 
-    # Extract formulas from all sheets in a workbook
-    # Returns array of hashes, one per sheet
-    def self.extract_all_sheets(filename : String, sheet_count : Int32) : Array(Hash(String, String))
-      all_formulas = Array(Hash(String, String)).new
-
-      sheet_count.times do |i|
-        formulas = extract(filename, i)
-        all_formulas << formulas
-      end
-
-      all_formulas
-    end
-
     # Resolves the actual worksheet XML path from workbook relationships.
     # This is necessary because worksheet files may not be named sheet1.xml, sheet2.xml, etc.
     private def self.resolve_sheet_path(zip : Compress::Zip::File, sheet_index : Int32) : String?
-      begin
-        # Parse workbook.xml to get sheet IDs
-        workbook = XML.parse(zip["xl/workbook.xml"].open(&.gets_to_end))
-        sheets_nodes = workbook.xpath_nodes("//*[name()='sheet']")
+      # Parse workbook.xml to get sheet IDs
+      workbook = XML.parse(zip["xl/workbook.xml"].open(&.gets_to_end))
+      sheets_nodes = workbook.xpath_nodes("//*[name()='sheet']")
 
-        return nil if sheet_index >= sheets_nodes.size
+      return nil if sheet_index >= sheets_nodes.size
 
-        sheet_node = sheets_nodes[sheet_index]
-        sheet_id = sheet_node["id"]?
+      sheet_node = sheets_nodes[sheet_index]
+      sheet_id = sheet_node["id"]?
 
-        return nil unless sheet_id
+      return nil unless sheet_id
 
-        # Parse workbook relationships to find the actual worksheet file
-        rels = XML.parse(zip["xl/_rels/workbook.xml.rels"].open(&.gets_to_end))
-        sheet_file = rels.xpath_string(
-          "string(//*[name()='Relationship' and contains(@Id,'#{sheet_id}')]/@Target)"
-        )
+      # Parse workbook relationships to find the actual worksheet file
+      rels = XML.parse(zip["xl/_rels/workbook.xml.rels"].open(&.gets_to_end))
+      sheet_file = rels.xpath_string(
+        "string(//*[name()='Relationship' and contains(@Id,'#{sheet_id}')]/@Target)"
+      )
 
-        # Target is relative to xl/ directory
-        sheet_file.empty? ? nil : "xl/#{sheet_file}"
-      rescue ex : Exception
-        # Fallback to simple naming if relationship parsing fails
-        "xl/worksheets/sheet#{sheet_index + 1}.xml"
-      end
+      # Target is relative to xl/ directory
+      sheet_file.empty? ? nil : "xl/#{sheet_file}"
+    rescue ex : Exception
+      # Fallback to simple naming if relationship parsing fails
+      "xl/worksheets/sheet#{sheet_index + 1}.xml"
     end
 
     # Parse formulas from worksheet XML content

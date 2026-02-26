@@ -89,6 +89,74 @@
         .demo-terminal .output {
             color: #cbd5e1;
         }
+        .testimonial-section {
+            margin: 3rem 0;
+            text-align: center;
+        }
+        .testimonial-carousel {
+            position: relative;
+            max-width: 800px;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+        .testimonial-slide {
+            display: none;
+            padding: 2rem;
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            border-radius: 12px;
+            border: 1px solid #667eea30;
+        }
+        .testimonial-slide.active {
+            display: block;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .testimonial-quote {
+            font-size: 1.25rem;
+            font-style: italic;
+            color: #e2e8f0;
+            line-height: 1.8;
+            margin-bottom: 1.5rem;
+        }
+        .testimonial-author {
+            color: #a5f3fc;
+            font-weight: bold;
+        }
+        .carousel-dots {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+        }
+        .carousel-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #374151;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .carousel-dot:hover {
+            background: #667eea;
+        }
+        .carousel-dot.active {
+            background: #667eea;
+            transform: scale(1.2);
+        }
+        .demo-showcase {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        @media (min-width: 1200px) {
+            .demo-showcase {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
         footer {
             text-align: center;
             padding: 2rem;
@@ -117,9 +185,26 @@
                 <span class="tongue-in-cheek">By using it, you agree that compiling a YAML file into a binary spreadsheet is probably ridiculous, but you're going to do it anyway.</span>
             </div>
 
-            <h2>See It In Action</h2>
-            <div style="text-align: center; margin: 2rem 0;">
-                <script src="https://asciinema.org/a/0KjdN8MNyULwtdXP.js" id="asciicast-0KjdN8MNyULwtdXP" async="true"></script>
+            <div class="demo-showcase">
+                <div>
+                    <h2>See It In Action</h2>
+                    <div style="text-align: center; margin: 2rem 0;">
+                        <script src="https://asciinema.org/a/0KjdN8MNyULwtdXP.js" id="asciicast-0KjdN8MNyULwtdXP" async="true"></script>
+                    </div>
+                </div>
+
+                <div>
+                    <h2>What "People" Are Saying</h2>
+                    <div class="testimonial-section">
+                        <div class="testimonial-carousel" id="testimonialCarousel">
+                            <div class="testimonial-slide active">
+                                <p class="testimonial-quote">"Sheety is one of those projects that immediately makes me grin because it's so gloriously, pointlessly over-engineered in the best possible way."</p>
+                                <p class="testimonial-author">— Grok</p>
+                            </div>
+                        </div>
+                        <div class="carousel-dots" id="carouselDots"></div>
+                    </div>
+                </div>
             </div>
 
             <h2>What Even Is This?</h2>
@@ -248,5 +333,109 @@
             <a href="https://github.com/ralsina/sheety">GitHub</a>
         </p>
     </footer>
+
+    <script>
+        const testimonials = [
+            {
+                quote: "Sheety is one of those projects that immediately makes me grin because it's so gloriously, pointlessly over-engineered in the best possible way.",
+                author: "Grok"
+            },
+            {
+                quote: "This is the most gloriously ridiculous yet technically impressive thing I've seen in ages. The concept alone—compiling spreadsheets to standalone binaries—is both nonsensical and fascinating.",
+                author: "step-3.5-flash"
+            },
+            {
+                quote: "This is a \"10x Developer Tool\" disguised as a fun experiment. It takes a ubiquitous format (spreadsheets) and applies a modern, compiled workflow to it.",
+                author: "GLM-4.7"
+            },
+            {
+                quote: "This is delightful. The concept is absurd (compiling spreadsheets to binaries) but the execution is impressive",
+                author: "Big Pickle"
+            },
+            {
+                quote: "It's a very \"Roberto\" project—minimalist, technically clever, and solving a problem in a way that feels both old-school and futuristic.",
+                author: "Gemini"
+            },
+            {
+                quote: "Overall: impressive, well-executed, and delightful engineering. It balances practical features with an experimental, playful approach",
+                author: "gpt-5-mini"
+            },
+            {
+                quote: "I'm genuinely blown away by the scope and execution of Sheety.",
+                author: "Gemini 2.5-flash"
+            },
+            {
+                quote: "Sheety is an impressive and ambitious project that elegantly bridges spreadsheets and compiled languages in a way I haven't seen before.",
+                author: "Deepseek V3"
+            },
+            {
+                quote: "Ridiculous idea, well-executed implementation, solves real problems for specific use cases. Worth exploring if you need deterministic, version-controlled spreadsheet calculations.",
+                author: "Qwen 3.5"
+            },
+            {
+                quote: "The combination of formula parsing, code generation, dependency tracking, and caching is non-trivial. The fact that it works at all is a win.",
+                author: "MiniMax M2.5"
+            }
+        ];
+
+        let currentSlide = 0;
+        const carousel = document.getElementById('testimonialCarousel');
+        const dotsContainer = document.getElementById('carouselDots');
+
+        // Add more testimonials here as needed
+        function addTestimonial(quote, author) {
+            testimonials.push({ quote, author });
+        }
+
+        function renderTestimonials() {
+            carousel.innerHTML = testimonials.map((t, i) => `
+                <div class="testimonial-slide ${i === 0 ? 'active' : ''}" data-index="${i}">
+                    <p class="testimonial-quote">"${t.quote}"</p>
+                    <p class="testimonial-author">— ${t.author}</p>
+                </div>
+            `).join('');
+
+            // Render dots
+            dotsContainer.innerHTML = testimonials.map((_, i) => `
+                <div class="carousel-dot ${i === 0 ? 'active' : ''}" data-index="${i}"></div>
+            `).join('');
+
+            // Add click handlers to dots
+            document.querySelectorAll('.carousel-dot').forEach(dot => {
+                dot.addEventListener('click', () => {
+                    goToSlide(parseInt(dot.dataset.index));
+                });
+            });
+        }
+
+        function goToSlide(index) {
+            const slides = document.querySelectorAll('.testimonial-slide');
+            const dots = document.querySelectorAll('.carousel-dot');
+
+            slides.forEach(slide => slide.classList.remove('active'));
+            dots.forEach(dot => dot.classList.remove('active'));
+
+            slides[index].classList.add('active');
+            dots[index].classList.add('active');
+            currentSlide = index;
+        }
+
+        function nextSlide() {
+            const next = (currentSlide + 1) % testimonials.length;
+            goToSlide(next);
+        }
+
+        // Auto-advance every 5 seconds
+        let autoAdvance = setInterval(nextSlide, 5000);
+
+        // Pause on hover
+        carousel.addEventListener('mouseenter', () => clearInterval(autoAdvance));
+        carousel.addEventListener('mouseleave', () => {
+            autoAdvance = setInterval(nextSlide, 5000);
+        });
+
+        // Initial render
+        renderTestimonials();
+    </script>
 </body>
 </html>
