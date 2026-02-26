@@ -25,6 +25,7 @@ module Sheety
     @extractor : DependencyExtractor
     @state_file_path : String?
     @kv_store_path : String?
+    @spreadsheet_uuid : String?
 
     def initialize
       @formulas = Hash(String, FormulaInfo).new
@@ -32,6 +33,7 @@ module Sheety
       @extractor = DependencyExtractor.new
       @state_file_path = nil
       @kv_store_path = nil
+      @spreadsheet_uuid = nil
     end
 
     # Set the path for the .croupier state file
@@ -43,6 +45,12 @@ module Sheety
     # Set the path for the persistent k/v store
     def set_kv_store_path(path : String) : self
       @kv_store_path = path
+      self
+    end
+
+    # Set the spreadsheet UUID (for tracking purposes)
+    def set_spreadsheet_uuid(uuid : String) : self
+      @spreadsheet_uuid = uuid
       self
     end
 

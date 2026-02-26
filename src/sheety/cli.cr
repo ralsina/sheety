@@ -3,6 +3,7 @@ require "./croupier_generator"
 require "./importers/excel_importer"
 require "./data_dir"
 require "openssl"
+require "uuid"
 
 module Sheety
   class CLI
@@ -13,6 +14,60 @@ module Sheety
         digest.update(file)
       end
       digest.final.hexstring
+    end
+
+    # Get or create a persistent UUID for the spreadsheet
+    # The UUID is stored in the YAML file's _ui_state section
+    # and persists across rebuilds as long as the file exists
+    private def self.get_or_create_spreadsheet_uuid(filename : String) : String
+      uuid = nil
+
+      # Try to read existing UUID from YAML
+      begin
+        yaml_content = File.read(filename)
+        data = YAML.parse(yaml_content)
+
+        if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
+          uuid = data["_ui_state"]["spreadsheet_uuid"].as_s
+        end
+      rescue
+        # If parsing fails, we'll create a new UUID
+      end
+
+      # If no UUID exists, create one and add it to the YAML
+      unless uuid
+        uuid = UUID.random.to_s
+
+        # Read the current YAML content
+        yaml_content = File.read(filename)
+
+        # Check if _ui_state section exists and if it has spreadsheet_uuid
+        if yaml_content.includes?("_ui_state:")
+          if yaml_content.includes?("spreadsheet_uuid:")
+            # Already has spreadsheet_uuid, don't add it again
+            # Try to extract it
+            yaml_content.each_line do |line|
+              if line.includes?("spreadsheet_uuid:")
+                match = line.match(/spreadsheet_uuid:\s*(\S+)/)
+                if match
+                  uuid = match[1]
+                  break
+                end
+              end
+            end
+          else
+            # Append the UUID to existing _ui_state section
+            yaml_content = yaml_content.gsub(/(_ui_state:)/, "\\1\n  spreadsheet_uuid: #{uuid}")
+            File.write(filename, yaml_content)
+          end
+        else
+          # Add _ui_state section at the end
+          yaml_content = yaml_content + "\n_ui_state:\n  spreadsheet_uuid: #{uuid}\n"
+          File.write(filename, yaml_content)
+        end
+      end
+
+      uuid
     end
 
     def self.run(args : Array(String))
@@ -65,22 +120,28 @@ module Sheety
       compile_only = extra_args.includes?("--compile-only")
       interactive = !extra_args.includes?("--no-interactive")
 
-      # Calculate hash of source file for caching
+      # Get or create persistent UUID for this spreadsheet
+      spreadsheet_uuid = get_or_create_spreadsheet_uuid(filename)
+
+      # Calculate hash of source file for caching (for binary naming)
       file_hash = calculate_file_hash(filename)
 
-      # Use first 16 characters of hash for filename
+      # Use first 16 characters of hash for binary/source filenames
       hash_short = file_hash[0...16]
 
-      # Output files in data directory tmp
+      # Output files in data directory tmp (binary uses hash)
       output_cr = File.join(DataDir.path, "tmp", "#{hash_short}.cr")
       binary_name = File.join(DataDir.path, "tmp", "#{hash_short}")
-      croupier_state = File.join(DataDir.path, "tmp", "#{hash_short}.croupier")
-      kv_store = File.join(DataDir.path, "tmp", "#{hash_short}.kv")
+
+      # State files use persistent UUID (survive across rebuilds)
+      croupier_state = File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.croupier")
+      kv_store = File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.kv")
 
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
       generator.set_state_file_path(croupier_state)
       generator.set_kv_store_path(kv_store)
+      generator.set_spreadsheet_uuid(spreadsheet_uuid)
       initial_values = Hash(String, Float64 | String | Bool).new
 
       # Load YAML file and process
