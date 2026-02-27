@@ -16,18 +16,6 @@ require "./croupier_generator"
 require "./errors"
 
 module Sheety
-  # Add helper methods that ast_builder.cr expects from the Sheety module
-  def self.parse_to_ast(formula : String) : AST::Node
-    parser = Parser.new
-    _, builder = parser.ast(formula)
-    builder.root
-  end
-
-  def self.parse(formula : String) : Tuple(Array(Token), AstBuilder)
-    parser = Parser.new
-    parser.ast(formula)
-  end
-
   # Handles rebuilding the binary when formulas are edited
   # This is used by the generated TUI to rebuild in-process instead of spawning a subprocess
   class Rebuilder

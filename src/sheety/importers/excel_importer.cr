@@ -141,19 +141,5 @@ module Sheety
         value.to_s
       end
     end
-
-    # Convert column number to letter (1 -> A, 2 -> B, 27 -> AA, etc.)
-    private def self.col_num_to_letter(num : Int32) : String
-      result = ""
-      n = num
-
-      while n > 0
-        n -= 1
-        result = ('A' + (n % 26)).to_s + result
-        n //= 26
-      end
-
-      result
-    end
   end
 end

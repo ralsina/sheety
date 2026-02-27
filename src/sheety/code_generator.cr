@@ -23,38 +23,6 @@ module Sheety
       visit(node, context)
     end
 
-    # Generate a complete proc body for a formula
-    def generate_proc_body(formula : String, context : Context = Context.new) : String
-      ast = Parser.new.ast(formula)[1].root
-      code = generate(ast, context)
-
-      # The proc reads from k/v store and returns result as string
-      %{
-        result = (#{code})
-
-        # Convert result to string for storage
-        case result
-        when Float64
-          # Format numbers appropriately
-          if result == result.to_i
-            result.to_i.to_s
-          else
-            result.to_s
-          end
-        when String
-          result
-        when Bool
-          result.upcase.to_s
-        when Sheety::Functions::ErrorValue
-          result.to_s
-        when Nil
-          ""
-        else
-          result.to_s
-        end
-      }
-    end
-
     # Visitor methods for each node type
 
     private def visit(node : Number, context : Context) : String

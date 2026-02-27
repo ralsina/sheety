@@ -20,25 +20,4 @@ module Sheety
       super(message)
     end
   end
-
-  # Error raised when a function is not implemented
-  class FunctionError < FormulaError
-    def initialize(message = "Function not implemented!")
-      super(message)
-    end
-  end
-
-  # Error raised when a range is invalid
-  class InvalidRangeError < FormulaError
-    def initialize(range_name : String)
-      super("Invalid range #{range_name}!")
-    end
-  end
-
-  # Error raised when a range has no value
-  class RangeValueError < FormulaError
-    def initialize(range_name : String)
-      super("Range #{range_name} has no value!")
-    end
-  end
 end

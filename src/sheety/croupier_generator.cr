@@ -71,14 +71,6 @@ module Sheety
       self
     end
 
-    # Add multiple formulas from a hash
-    def add_formulas(formulas : Hash(String, String), sheet : String? = nil) : self
-      formulas.each do |cell, formula|
-        add_formula(cell, formula, sheet)
-      end
-      self
-    end
-
     # Parse formula string and validate it
     private def parse_formula(formula : String) : Node?
       _, builder = Parser.new.ast(formula)
@@ -87,66 +79,9 @@ module Sheety
       nil
     end
 
-    # Generate and register all Croupier tasks
-    def register_tasks : Nil
-      @formulas.each do |_, info|
-        register_single_task(info)
-      end
-    end
-
-    # Generate and register a single task
-    private def register_single_task(info : FormulaInfo) : Nil
-      # Parse the formula
-      formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
-      ast = parse_formula(formula)
-
-      if ast.nil?
-        # Invalid formula - create a task that returns an error
-        create_error_task(info)
-        return
-      end
-
-      # Extract dependencies
-      dependencies = @extractor.extract(ast, info.sheet)
-
-      # Create the proc
-      proc = -> {
-        begin
-          # Eval the generated code
-          # Note: We need to use a different approach since Crystal doesn't have eval
-          # For now, we'll return a placeholder
-          "#VALUE!"
-        rescue
-          "#VALUE!"
-        end
-      }
-
-      # Create and register the task
-      task_id = "formula_#{sanitize_key(info.key)}"
-      Croupier::Task.new(
-        id: task_id,
-        inputs: dependencies.to_a,
-        outputs: [info.key],
-        proc: proc
-      )
-    end
-
     # Sanitize key for use in task ID
     private def sanitize_key(key : String) : String
       key.gsub(/[!\/]/, "_")
-    end
-
-    # Create a task for an invalid formula
-    private def create_error_task(info : FormulaInfo) : Nil
-      proc = -> { "#VALUE!" }
-      task_id = "formula_#{sanitize_key(info.key)}"
-
-      Croupier::Task.new(
-        id: task_id,
-        inputs: [] of String,
-        outputs: [info.key],
-        proc: proc
-      )
     end
 
     # Generate Crystal source code for all tasks
@@ -584,85 +519,6 @@ end
 
 # Run the TUI
 tui.run
-}
-    end
-
-    # Generate helper functions (col_num_to_letter and print_sheet)
-    private def generate_helper_functions : String
-      # This is the same code used in generate_execution_code
-      %{
-# Helper function to convert column number to letters
-def col_num_to_letter(num)
-  result = ""
-  while num > 0
-    num -= 1
-    result = ('A' + (num % 26)).to_s + result
-    num //= 26
-  end
-  result
-end
-
-def print_sheet(data, sheet_name)
-  # Find the grid dimensions
-  max_col = 0
-  max_row = 0
-
-  data.each do |cell|
-    if match = cell[:cell].match(/^([A-Z]+)(\\d+)$/)
-      col = match[1]
-      row = match[2].to_i
-
-      # Convert column to number for comparison
-      col_num = 0
-      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
-
-      max_col = col_num if col_num > max_col
-      max_row = row if row > max_row
-    end
-  end
-
-  # Create a 2D grid
-  grid = Array.new(max_row) { Array.new(max_col, "") }
-
-  # Fill the grid
-  data.each do |cell|
-    if match = cell[:cell].match(/^([A-Z]+)(\\d+)$/)
-      col = match[1]
-      row = match[2].to_i - 1  # Convert to 0-indexed
-
-      # Convert column to number
-      col_num = 0
-      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
-
-      value = cell[:value]
-      formula = cell[:formula]
-
-      # Display: if there's a formula, show it, otherwise just the value
-      display = formula.empty? ? value : formula + " -> " + value
-
-      grid[row][col_num - 1] = display
-    end
-  end
-
-  # Build column headers (A, B, C, ...)
-  column_headers = (1..max_col).map { |i| col_num_to_letter(i) }
-
-  # Build table data with row numbers
-  table_data = (0...max_row).map do |row_idx|
-    [row_idx + 1] + grid[row_idx]
-  end
-
-  # Create and print the table using Tablo
-  table = Tablo::Table.new(table_data) do |t|
-    t.add_column("Row", &.[](0).to_s)
-    (1..max_col).each do |col_idx|
-      t.add_column(column_headers[col_idx - 1], &.[](col_idx).to_s)
-    end
-  end
-
-  puts table
-  puts ""
-end
 }
     end
   end

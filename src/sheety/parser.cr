@@ -19,11 +19,6 @@ module Sheety
     def initialize(@context : Hash(String, Float64 | String)? = nil)
     end
 
-    # Check if a value is a formula
-    def formula?(value : String) : Bool
-      FORMULA_CHECK.match(value) != nil
-    end
-
     # Parse a formula string and return (tokens, ast_builder)
     def ast(expression : String) : Tuple(Array(Token), AstBuilder)
       # Normalize expression

@@ -49,6 +49,21 @@ module Sheety
       read_with_metadata(file_path).data
     end
 
+    # Create an empty spreadsheet file
+    def self.create_empty(file_path : String) : Nil
+      ext = File.extname(file_path).downcase
+
+      case ext
+      when ".yaml", ".yml"
+        create_empty_yaml(file_path)
+      when ".xlsx"
+        create_empty_excel(file_path)
+      else
+        # Default to YAML for unknown extensions
+        create_empty_yaml(file_path)
+      end
+    end
+
     # Get or create UUID for spreadsheet data
     private def self.get_or_create_uuid_for_data(data : WorkbookData, file_path : String) : String
       uuid = nil
@@ -367,6 +382,28 @@ module Sheety
       unless compile_result.success?
         raise "Compilation failed"
       end
+    end
+
+    # Create an empty YAML spreadsheet
+    private def self.create_empty_yaml(file_path : String) : Nil
+      content = <<-YAML
+        Sheet1:
+          A1:
+            value: 0
+        _ui_state:
+          spreadsheet_uuid: #{UUID.random.to_s}
+        YAML
+
+      File.write(file_path, content.strip)
+    end
+
+    # Create an empty Excel spreadsheet
+    private def self.create_empty_excel(file_path : String) : Nil
+      # Create via YAML intermediate then convert
+      temp_yaml = File.join(DataDir.path, "tmp", "empty_#{UUID.random.to_s}.yaml")
+      create_empty_yaml(temp_yaml)
+      convert(temp_yaml, file_path)
+      File.delete(temp_yaml)
     end
   end
 end

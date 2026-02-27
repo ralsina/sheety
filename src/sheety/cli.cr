@@ -1,8 +1,6 @@
 require "yaml"
 require "./croupier_generator"
 require "./spreadsheet"
-require "./yaml_parser"
-require "./builder"
 require "./data_dir"
 require "openssl"
 require "uuid"
@@ -47,9 +45,10 @@ module Sheety
         exit 1
       end
 
+      # If file doesn't exist, create an empty spreadsheet
       unless File.exists?(filename)
-        STDERR.puts "Error: File not found: #{filename}"
-        exit 1
+        puts "Creating new spreadsheet: #{filename}"
+        Spreadsheet.create_empty(filename)
       end
 
       # Check for flags
