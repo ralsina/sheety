@@ -51,20 +51,19 @@ module Sheety
     end
 
     private def visit(node : RangeRef, context : Context) : String
-      # Parse and expand range into individual cell references
+      # Parse range and generate call to fetch_cell_range helper
       range = node.range
       sheet = node.sheet || context.sheet
 
       # Parse range (e.g., "A1:B5")
       if match = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/)
         start_col = match[1]
-        start_row = match[2].to_i
+        start_row = match[2]
         end_col = match[3]
-        end_row = match[4].to_i
+        end_row = match[4]
 
-        # Generate array of cell references
-        cells = expand_range(start_col, start_row, end_col, end_row, sheet)
-        "fetch_cells([#{cells.map(&.inspect).join(", ")}])"
+        # Generate call to helper function
+        "fetch_cell_range(#{sheet.inspect}, #{start_col.inspect}, #{start_row}, #{end_col.inspect}, #{end_row})"
       else
         "[]"
       end
