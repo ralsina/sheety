@@ -333,6 +333,15 @@ module Sheety
       end
 
       File.write(file_path, source_code)
+
+      # Format the generated Crystal file
+      format_result = Process.run("crystal", ["tool", "format", file_path],
+        output: Process::Redirect::Inherit,
+        error: Process::Redirect::Inherit)
+
+      unless format_result.success?
+        STDERR.puts "Warning: Failed to format generated Crystal file"
+      end
     end
 
     # Write compiled binary format
