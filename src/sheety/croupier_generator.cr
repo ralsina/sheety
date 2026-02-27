@@ -162,46 +162,30 @@ module Sheety
 
     # Generate code to set initial values
     private def generate_setup_code(initial_values : Hash(String, Float64 | String | Bool)) : String
-      # Collect ALL cell references from formulas to ensure dependencies exist
-      all_referenced_cells = Set(String).new
+      # Build a hash of only the cells with actual values
+      # Empty cells don't need to be initialized since fetch_cell returns "" for missing keys
+      all_cells = Hash(String, String).new
 
-      @formulas.each do |_, info|
-        formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
-        ast = parse_formula(formula)
-        next if ast.nil?
-
-        # Extract dependencies including expanded ranges
-        dependencies = @extractor.extract(ast, info.sheet)
-        dependencies.each { |dep| all_referenced_cells << dep }
-      end
-
-      # Generate assignments for initial values
-      value_assignments = [] of String
-
-      # First, set user-provided values
+      # Add user-provided values
       initial_values.each do |key, value|
         value_str = case value
-                    when Float64 then value.to_s.inspect
-                    when String  then value.inspect
+                    when Float64 then value.to_s
+                    when String  then value
                     when Bool    then value.to_s
-                    else              "\"\""
+                    else              ""
                     end
-        value_assignments << "Croupier::TaskManager.set(#{key.inspect}, #{value_str})"
+        all_cells[key] = value_str
       end
 
-      # Then, initialize any missing referenced cells with empty string
-      all_referenced_cells.each do |cell_ref|
-        unless initial_values.has_key?(cell_ref)
-          value_assignments << "Croupier::TaskManager.set(#{cell_ref.inspect}, \"\")"
-        end
-      end
-
-      setup = %{
+      if all_cells.empty?
+        ""
+      else
+        %{
 # Set initial cell values
-#{value_assignments.join("\n")}
-}
+initialize_cells(#{all_cells.inspect})
 
-      setup
+}
+      end
     end
 
     # Generate code to execute tasks and print results
@@ -373,12 +357,12 @@ puts ""
       has_range = calc_code.includes?("fetch_cell_range(")
 
       inputs_code = if has_range && dependencies.size > 1
-        # Extract the range from the calc_code
-        # This is a simple approach - we could make it more sophisticated
-        "range_inputs(#{calc_code.match(/fetch_cell_range\(([^)]+)\)/).not_nil![1]})"
-      else
-        "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "]"
-      end
+                      # Extract the range from the calc_code
+                      # This is a simple approach - we could make it more sophisticated
+                      "range_inputs(#{calc_code.match!(/fetch_cell_range\(([^)]+)\)/)[1]})"
+                    else
+                      "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "]"
+                    end
 
       # Build the task - the proc should return the result as a string
       %{

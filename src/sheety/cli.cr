@@ -164,14 +164,14 @@ module Sheety
       puts "\nLaunching TUI..."
       puts "Press Q to exit\n"
 
-        # Run the binary - it handles its own rebuilding via Process.exec
-        run_result = Process.run(binary_name, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      # Run the binary - it handles its own rebuilding via Process.exec
+      run_result = Process.run(binary_name, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
-        # Handle non-zero exit codes
-        unless run_result.success?
-          puts "\nNote: TUI requires a terminal. Run './#{binary_name}' in a terminal to view the spreadsheet."
-        end
-        exit run_result.exit_code
+      # Handle non-zero exit codes
+      unless run_result.success?
+        puts "\nNote: TUI requires a terminal. Run './#{binary_name}' in a terminal to view the spreadsheet."
+      end
+      exit run_result.exit_code
     end
 
     private def self.print_help : Nil

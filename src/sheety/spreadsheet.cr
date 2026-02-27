@@ -30,13 +30,13 @@ module Sheety
 
       # Read the data
       data = case ext
-              when ".yaml", ".yml"
-                read_yaml(file_path)
-              when ".xlsx"
-                read_excel(file_path)
-              else
-                raise "Unsupported input format: #{ext}"
-              end
+             when ".yaml", ".yml"
+               read_yaml(file_path)
+             when ".xlsx"
+               read_excel(file_path)
+             else
+               raise "Unsupported input format: #{ext}"
+             end
 
       # Get or create UUID
       uuid = get_or_create_uuid_for_data(data, file_path)

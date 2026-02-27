@@ -14,7 +14,7 @@ module Sheety
       # Convert column letters to numbers
       col_num = ->(col : String) {
         num = 0
-        col.each_char { |c| num = num * 26 + (c.ord - 'A'.ord + 1) }
+        col.each_char { |char| num = num * 26 + (char.ord - 'A'.ord + 1) }
         num
       }
 
@@ -48,7 +48,7 @@ module Sheety
       # Convert column letters to numbers
       col_num = ->(col : String) {
         num = 0
-        col.each_char { |c| num = num * 26 + (c.ord - 'A'.ord + 1) }
+        col.each_char { |char| num = num * 26 + (char.ord - 'A'.ord + 1) }
         num
       }
 
@@ -96,6 +96,13 @@ module Sheety
         ""
       else
         result.to_s
+      end
+    end
+
+    # Initialize multiple cells at once from a hash
+    def initialize_cells(cells : Hash(String, String))
+      cells.each do |key, value|
+        Croupier::TaskManager.set(key, value)
       end
     end
   end

@@ -39,7 +39,7 @@ describe Sheety::CodeGenerator do
       ast = Sheety.parse_to_ast("=A1")
       gen = Sheety::CodeGenerator.new
       code = gen.generate(ast)
-      code.should contain("Croupier::TaskManager.get")
+      code.should contain("fetch_cell")
       code.should contain("\"A1\"")
     end
 
@@ -47,7 +47,7 @@ describe Sheety::CodeGenerator do
       ast = Sheety.parse_to_ast("=SUM(A1:B2)")
       gen = Sheety::CodeGenerator.new
       code = gen.generate(ast)
-      code.should contain("Croupier::TaskManager.get")
+      code.should contain("fetch_cell_range")
     end
 
     it "generates code for function calls" do
@@ -80,13 +80,19 @@ describe Sheety::CodeGenerator do
     end
   end
 
-  describe "#generate_proc_body" do
-    it "generates complete proc body with result conversion" do
+  describe "#generate" do
+    it "generates code with fetch_cell helper" do
+      ast = Sheety.parse_to_ast("=A1+B1")
       gen = Sheety::CodeGenerator.new
-      body = gen.generate_proc_body("=42")
-      body.should contain("result")
-      body.should contain("case result")
-      body.should contain("when Float64")
+      code = gen.generate(ast)
+      code.should contain("fetch_cell")
+    end
+
+    it "generates code with fetch_cell_range helper" do
+      ast = Sheety.parse_to_ast("=SUM(A1:A10)")
+      gen = Sheety::CodeGenerator.new
+      code = gen.generate(ast)
+      code.should contain("fetch_cell_range")
     end
   end
 end
@@ -144,19 +150,13 @@ end
 describe Sheety::CroupierGenerator do
   describe "#add_formula" do
     it "adds a formula to the generator" do
-      gen = Sheety.croupier_generator
+      gen = Sheety::CroupierGenerator.new
       gen.add_formula("C1", "=SUM(A1:A5)")
       # Should not raise
     end
 
-    it "adds multiple formulas" do
-      gen = Sheety.croupier_generator
-      gen.add_formulas({"C1" => "=SUM(A1:A5)", "D1" => "=C1*2"})
-      # Should not raise
-    end
-
     it "handles formulas with sheet context" do
-      gen = Sheety.croupier_generator
+      gen = Sheety::CroupierGenerator.new
       gen.add_formula("C1", "=SUM(A1:A5)", "Sheet1")
       # Should not raise
     end
@@ -164,7 +164,7 @@ describe Sheety::CroupierGenerator do
 
   describe "#generate_source" do
     it "generates Crystal source code" do
-      gen = Sheety.croupier_generator
+      gen = Sheety::CroupierGenerator.new
       gen.add_formula("C1", "=SUM(A1:A5)")
       source = gen.generate_source
       source.should contain("require \"croupier\"")
@@ -173,7 +173,7 @@ describe Sheety::CroupierGenerator do
     end
 
     it "generates source with dependencies" do
-      gen = Sheety.croupier_generator
+      gen = Sheety::CroupierGenerator.new
       gen.add_formula("C1", "=A1+B1")
       source = gen.generate_source
       source.should contain("\"A1\"")

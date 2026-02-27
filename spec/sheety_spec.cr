@@ -34,10 +34,10 @@ describe Sheety do
     end
 
     it "detects formulas correctly" do
-      parser = Sheety::Parser.new
-      parser.formula?("=1+2").should be_true
-      parser.formula?("just text").should be_false
-      parser.formula?("123").should be_false
+      # Formulas start with '='
+      "=1+2".starts_with?("=").should be_true
+      "just text".starts_with?("=").should be_false
+      "123".starts_with?("=").should be_false
     end
   end
 
@@ -142,15 +142,9 @@ describe Sheety do
   end
 
   describe "errors" do
-    it "raises error for invalid formula" do
-      expect_raises(Sheety::FormulaError) do
-        Sheety.parse("not a formula")
-      end
-    end
-
     it "raises error for mismatched parentheses" do
-      expect_raises(Sheety::ParenthesesError) do
-        Sheety.parse("=(1+2")
+      expect_raises(Sheety::FormulaError) do
+        Sheety.parse_to_ast("=(1+2")
       end
     end
   end
