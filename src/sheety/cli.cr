@@ -62,17 +62,18 @@ module Sheety
         return
       end
 
-      # For .xlsx files, convert to YAML first
-      ext = File.extname(filename).downcase
-      if ext == ".xlsx"
-        puts "Converting Excel file to YAML format..."
-        yaml_filename = File.join(DataDir.path, "#{File.basename(filename, ".xlsx")}.yaml")
-        Spreadsheet.convert(filename, yaml_filename)
-        filename = yaml_filename
+      # Interactive mode: build binary and launch TUI
+      # Read the spreadsheet data (works with any format)
+      data = Spreadsheet.read(filename)
+
+      # Get or create persistent UUID for this spreadsheet
+      # For non-YAML files, we need to create a YAML intermediate file first
+      if File.extname(filename).downcase != ".yaml"
+        temp_yaml = File.join(DataDir.path, "tmp", "#{UUID.random.to_s}.yaml")
+        Spreadsheet.write(data, temp_yaml)
+        filename = temp_yaml
       end
 
-      # Now process the YAML file (either original or converted)
-      # Get or create persistent UUID for this spreadsheet
       spreadsheet_uuid = Spreadsheet.get_or_create_spreadsheet_uuid(filename)
 
       # Calculate hash of source file for caching (for binary naming)
@@ -92,7 +93,7 @@ module Sheety
       # Intermediate save file for auto-saves (uses UUID to avoid conflicts)
       intermediate_file = File.join(DataDir.path, "#{spreadsheet_uuid}.yaml")
 
-      # Copy original file to intermediate file if it doesn't exist or is outdated
+      # Copy source file to intermediate file if it doesn't exist
       if !File.exists?(intermediate_file) || File.info(filename).modification_time > File.info(intermediate_file).modification_time
         FileUtils.cp(filename, intermediate_file)
       end
@@ -104,30 +105,25 @@ module Sheety
       generator.set_spreadsheet_uuid(spreadsheet_uuid)
       initial_values = Hash(String, Float64 | String | Bool).new
 
-      # Load YAML file and process (use intermediate file if it exists and is newer)
-      yaml_source = if File.exists?(intermediate_file) && File.info(intermediate_file).modification_time >= File.info(filename).modification_time
-                      intermediate_file
-                    else
-                      filename
-                    end
-
-      yaml_content = File.read(yaml_source)
-      data = YAML.parse(yaml_content)
-      # Load YAML file and process
-      data.as_h.each do |sheet_name, sheet_data|
-        # Skip UI metadata
-        next if sheet_name.as_s == "_ui_state"
-
-        sheet_data.as_h.each do |cell_ref, cell_data|
-          cell_data = cell_data.as_h
+      # Convert data to Croupier format
+      data.each do |sheet_name, sheet_data|
+        sheet_data.each do |cell_ref, cell_data|
           key = "#{sheet_name}!#{cell_ref}"
 
           if cell_data.has_key?("formula")
             formula = cell_data["formula"].to_s
             generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
           elsif cell_data.has_key?("value")
-            value = YAMLParser.parse_value(cell_data["value"])
-            initial_values[key] = value
+            value = cell_data["value"]
+            # Skip nil values
+            next if value.nil?
+            # Convert to appropriate type
+            case value
+            when String, Float64, Bool
+              initial_values[key] = value
+            else
+              initial_values[key] = value.to_s
+            end
           end
         end
       end
