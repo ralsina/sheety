@@ -1107,8 +1107,8 @@ module Sheety
                             cell[:value]
                           end
 
-          # Skip empty cells
-          next if current_value.empty?
+          # Skip empty cells UNLESS they have a formula
+          next if current_value.empty? && cell[:formula].empty?
 
           cell_info_any = {} of YAML::Any => YAML::Any
 
