@@ -142,6 +142,21 @@ module Sheety
 
       source += "\n"
 
+      # Add helper functions for fetching cell values
+      source += %{
+# Helper function to fetch a single cell value with default fallback
+def fetch_cell(cell_ref : String) : String
+  Croupier::TaskManager.get(cell_ref) || ""
+end
+
+# Helper function to fetch multiple cell values at once
+def fetch_cells(cell_refs : Array(String)) : Array(String)
+  cell_refs.map { |ref| fetch_cell(ref) }
+end
+}
+
+      source += "\n"
+
       # Then add task definitions
       @formulas.each do |_, info|
         source += generate_single_task_source(info)

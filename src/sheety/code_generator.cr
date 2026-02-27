@@ -45,9 +45,9 @@ module Sheety
       ref = node.reference
       sheet = node.sheet || context.sheet
 
-      # Generate code to fetch from k/v store with proper nil handling
+      # Generate code to fetch using helper function
       key = sheet ? "#{sheet}!#{ref}" : ref
-      "(Croupier::TaskManager.get(#{key.inspect}) || \"\")"
+      "fetch_cell(#{key.inspect})"
     end
 
     private def visit(node : RangeRef, context : Context) : String
@@ -62,9 +62,9 @@ module Sheety
         end_col = match[3]
         end_row = match[4].to_i
 
-        # Generate array of cell fetches with proper nil handling
+        # Generate array of cell references
         cells = expand_range(start_col, start_row, end_col, end_row, sheet)
-        "[" + cells.map { |ref| "(Croupier::TaskManager.get(#{ref.inspect}) || \"\")" }.join(", ") + "]"
+        "fetch_cells([#{cells.map(&.inspect).join(", ")}])"
       else
         "[]"
       end
