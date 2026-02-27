@@ -364,17 +364,27 @@ puts ""
       end
 
       # Extract dependencies - these are the inputs
-      # Add kv:// prefix for k/v store keys
-      dependencies = @extractor.extract(ast, info.sheet).map { |dep| "kv://#{dep}" }.to_a
+      dependencies = @extractor.extract(ast, info.sheet)
 
       # Generate the calculation code
       calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
+
+      # Build the inputs array - use helper if the formula uses a range
+      has_range = calc_code.includes?("fetch_cell_range(")
+
+      inputs_code = if has_range && dependencies.size > 1
+        # Extract the range from the calc_code
+        # This is a simple approach - we could make it more sophisticated
+        "range_inputs(#{calc_code.match(/fetch_cell_range\(([^)]+)\)/).not_nil![1]})"
+      else
+        "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "]"
+      end
 
       # Build the task - the proc should return the result as a string
       %{
         Croupier::Task.new(
           id: "formula_#{sanitize_key(info.key)}",
-          inputs: [#{dependencies.map(&.inspect).join(", ")}],
+          inputs: #{inputs_code},
           outputs: ["kv://#{info.key}"],
         ) do
           begin

@@ -42,6 +42,40 @@ module Sheety
       end
       result
     end
+
+    # Generate k/v store input keys for a range
+    def range_inputs(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(String)
+      # Convert column letters to numbers
+      col_num = ->(col : String) {
+        num = 0
+        col.each_char { |c| num = num * 26 + (c.ord - 'A'.ord + 1) }
+        num
+      }
+
+      # Convert column numbers to letters
+      num_to_col = ->(num : Int32) {
+        result = ""
+        while num > 0
+          num -= 1
+          result = ('A' + (num % 26)).to_s + result
+          num //= 26
+        end
+        result
+      }
+
+      start_col_num = col_num.call(start_col)
+      end_col_num = col_num.call(end_col)
+
+      # Build array of k/v store keys
+      result = [] of String
+      (start_row..end_row).each do |row|
+        (start_col_num..end_col_num).each do |col|
+          col_str = num_to_col.call(col)
+          result << "kv://" + sheet + "!" + col_str + row.to_s
+        end
+      end
+      result
+    end
   end
 end
 
