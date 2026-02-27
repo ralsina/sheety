@@ -2,7 +2,7 @@
 Sheet1:
   C1:
     formula: =AVG(A1:A100)
-    value: "25"
+    value: "4.16666666666666666667"
   A1:
     value: 1.0
   A2:
@@ -17,5 +17,4 @@ Sheet1:
     value: 10.0
 _ui_state:
   active_sheet: Sheet1
-  active_cell: C1
-  spreadsheet_uuid: 8fb0021a-49a3-41b5-8e48-8cc4abaf3735
+  active_cell: C2

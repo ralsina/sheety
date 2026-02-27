@@ -670,9 +670,10 @@ module Sheety
           @edit_buffer = "=" + @edit_buffer
         end
 
-        # Update the formula in sheet_data
-        # Find the cell in sheet_data and update its formula
+        # Update or add the formula in sheet_data
         if cells = @sheet_data[sheet_name]?
+          # Find the cell in sheet_data and update its formula
+          found = false
           cells.each_with_index do |cell|
             if cell[:cell] == cell_ref
               # Update the formula in the array
@@ -683,9 +684,18 @@ module Sheety
                   c
                 end
               end
+              found = true
               break
             end
           end
+
+          # If cell wasn't found in sheet_data, add it as a new formula cell
+          unless found
+            @sheet_data[sheet_name] = cells + [{cell: cell_ref, formula: @edit_buffer, value: ""}]
+          end
+        else
+          # No cells for this sheet yet, create the array with this formula cell
+          @sheet_data[sheet_name] = [{cell: cell_ref, formula: @edit_buffer, value: ""}]
         end
 
         # Ensure we have an intermediate file
