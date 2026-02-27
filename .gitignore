@@ -27,3 +27,5 @@ examples/*.cr
 examples/*_*.yaml
 examples/Sheety Test Sheet*
 examples/test.sheety
+*.sheety
+*.bin
