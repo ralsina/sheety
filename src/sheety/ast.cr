@@ -12,14 +12,6 @@ module Sheety
       def expr : String
         @attr.fetch("expr", "").as(String)
       end
-
-      def to_s(io : IO) : Nil
-        io << expr
-      end
-
-      def inspect(io : IO) : Nil
-        io << "<#{self.class.name} #{expr}>"
-      end
     end
 
     # Number literal node
@@ -136,16 +128,6 @@ module Sheety
       def expr : String
         @name
       end
-    end
-
-    # Convenience method for creating CellRef without sheet
-    def self.create_cell_ref(reference : String) : CellRef
-      CellRef.new(reference, nil)
-    end
-
-    # Convenience method for creating RangeRef without sheet
-    def self.create_range_ref(range : String) : RangeRef
-      RangeRef.new(range, nil)
     end
 
     # Unary operation node (e.g., -5, +3)

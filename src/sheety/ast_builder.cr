@@ -50,14 +50,6 @@ module Sheety
       @node_stack << node
     end
 
-    def size : Int32
-      @node_stack.size
-    end
-
-    def [](index : Int32) : AST::Node
-      @node_stack[index]
-    end
-
     def pop : AST::Node?
       @node_stack.pop?
     end
@@ -75,16 +67,6 @@ module Sheety
         raise FormulaError.new("AST does not have exactly one root node")
       end
       @node_stack.last
-    end
-
-    # Convert the AST to a string representation
-    def to_s(io : IO) : Nil
-      root.to_s(io)
-    end
-
-    # Get the AST as a tree structure (for inspection/debugging)
-    def to_tree(io : IO, indent : Int32 = 0) : Nil
-      root.to_tree(io, indent)
     end
 
     private def operand_to_ast_node(token : Tokens::Operand) : AST::Node
@@ -159,54 +141,6 @@ module Sheety
       else
         # For other operand types, create a placeholder
         AST::CellRef.new(token.name)
-      end
-    end
-  end
-end
-
-# Extend AST::Node with tree printing
-module Sheety::AST
-  class Node
-    def to_tree(io : IO, indent : Int32 = 0) : Nil
-      io << "  " * indent
-      inspect(io)
-      io << "\n"
-    end
-  end
-
-  class UnaryOp
-    def to_tree(io : IO, indent : Int32 = 0) : Nil
-      io << "  " * indent
-      io << "#{operator} <UnaryOp>\n"
-      @operand.to_tree(io, indent + 1)
-    end
-  end
-
-  class BinaryOp
-    def to_tree(io : IO, indent : Int32 = 0) : Nil
-      io << "  " * indent
-      io << "#{operator} <BinaryOp>\n"
-      @left.to_tree(io, indent + 1)
-      @right.to_tree(io, indent + 1)
-    end
-  end
-
-  class FunctionCall
-    def to_tree(io : IO, indent : Int32 = 0) : Nil
-      io << "  " * indent
-      io << "#{@function_name} <FunctionCall> (#{@arguments.size} args)\n"
-      @arguments.each do |arg|
-        arg.to_tree(io, indent + 1)
-      end
-    end
-  end
-
-  class ArrayConstant
-    def to_tree(io : IO, indent : Int32 = 0) : Nil
-      io << "  " * indent
-      io << "<ArrayConstant> (#{@elements.size} elements)\n"
-      @elements.each do |elem|
-        elem.to_tree(io, indent + 1)
       end
     end
   end

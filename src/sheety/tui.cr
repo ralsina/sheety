@@ -1,5 +1,11 @@
 require "termisu"
 require "yaml"
+require "./importers/excel_exporter"
+{% unless flag?(:light_mode) %}
+  require "./rebuilder"
+{% end %}
+require "./croupier_generator"
+require "./data_dir"
 
 module Sheety
   # Notification with level and timestamp
@@ -20,14 +26,14 @@ module Sheety
 
     getter text : String
     getter level : Level
-    getter timestamp : Time::Span
+    getter timestamp : Time::Instant
 
     def initialize(@text : String, @level : Level = Level::Info)
-      @timestamp = Time.monotonic
+      @timestamp = Time.instant
     end
 
     def age : Time::Span
-      Time.monotonic - @timestamp
+      Time.instant - @timestamp
     end
 
     def expired?(timeout : Time::Span = 5.seconds) : Bool
@@ -76,21 +82,27 @@ module Sheety
     @formula_bar_height : Int32 = 1
     @notification : Notification?
 
+    # Filename edit mode for save prompt
+    @filename_edit_mode : Bool = false
+    @filename_edit_buffer : String = ""
+    @filename_edit_cursor : Int32 = 0
+
     # Callback for updating cell values
     @value_update_callback : Proc(String, String, String, Nil)?
     @refresh_callback : Proc(Nil)?
     @value_getter_callback : Proc(String, String, String)?
     @save_callback : Proc(Nil)?
     @source_file : String?
-    @sheety_available : Bool
+    @intermediate_file : String?
+    @original_source_file : String? # Track the original file for saves
     @rebuilding : Bool = false
+    @pending_exec : String? = nil
 
-    def initialize(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), update_callback : Proc(String, String, String, Nil) = ->(_s : String, _c : String, _v : String) {}, source_file : String? = nil)
+    def initialize(sheets : Array(String), sheet_data : Hash(String, Array(NamedTuple(cell: String, formula: String, value: String))), update_callback : Proc(String, String, String, Nil) = ->(_s : String, _c : String, _v : String) { }, source_file : String? = nil)
       @termisu = Termisu.new
       @sheets = sheets.sort
       @sheet_data = sheet_data
       @source_file = source_file
-      @sheety_available = !!Process.find_executable("sheety")
       @current_sheet_idx = 0
       @active_row = 0
       @active_col = 0
@@ -176,14 +188,16 @@ module Sheety
     def run : Nil
       @termisu.hide_cursor
 
-      # Show warning if sheety is not available
-      unless @sheety_available
-        show_notification("Warning: sheety not found - formula editing disabled", Notification::Level::Warning)
-      end
-
       render
 
       loop do
+        # Check if we need to exec to new binary
+        if pending = @pending_exec
+          @termisu.close
+          # Exec the new binary directly, not sheety
+          Process.exec(pending, [] of String)
+        end
+
         # Update notification state (auto-clear expired)
         had_notification = @notification != nil
         update_notification
@@ -225,7 +239,7 @@ module Sheety
       # Create fixed 1000x1000 grid filled with empty strings
       @grid = Array.new(@max_row) { Array.new(@max_col, "") }
 
-      # If no data and no callback, we're done
+      # If no data, we're done
       return if data.nil? || data.empty?
 
       # Build a map of cells with their formulas for quick lookup
@@ -234,26 +248,32 @@ module Sheety
         cell_map[cell[:cell]] = {formula: cell[:formula], value: cell[:value]}
       end
 
-      # Fill grid by checking all cells that have either data or might have values in Croupier
-      (0...@max_row).each do |row|
-        (0...@max_col).each do |col|
-          # Convert to cell reference
-          cell_ref = num_to_col(col + 1) + (row + 1).to_s
+      # Only fill cells that we know have data in cell_map
+      # This avoids calling the callback for all 1 million cells
+      cell_map.each do |cell_ref, cell_data|
+        # Parse cell reference to get row and col
+        if match = cell_ref.match(/^([A-Za-z]+)(\d+)$/)
+          col_str = match[1]
+          row_str = match[2]
+
+          col = col_to_num(col_str) - 1
+          row = row_str.to_i - 1
+
+          # Check bounds
+          next if row < 0 || row >= @max_row || col < 0 || col >= @max_col
 
           # Try to get value from callback first (for edited cells), then from data
           value = if callback = @value_getter_callback
                     fetched = callback.call(sheet_name, cell_ref)
                     if fetched.empty?
-                      # Not in store, check original data
-                      cell_data = cell_map[cell_ref]?
-                      cell_data ? cell_data[:value] : ""
+                      # Not in store, use original data
+                      cell_data[:value]
                     else
                       fetched
                     end
                   else
                     # No callback, use original data
-                    cell_data = cell_map[cell_ref]?
-                    cell_data ? cell_data[:value] : ""
+                    cell_data[:value]
                   end
 
           @grid[row][col] = value unless value.empty?
@@ -281,7 +301,9 @@ module Sheety
     end
 
     private def handle_key_event(event : Termisu::Event::Key) : Nil
-      if @edit_mode
+      if @filename_edit_mode
+        handle_filename_edit_key_event(event)
+      elsif @edit_mode
         handle_edit_key_event(event)
       else
         handle_normal_key_event(event)
@@ -291,6 +313,15 @@ module Sheety
     private def handle_normal_key_event(event : Termisu::Event::Key) : Nil
       # Ignore input while rebuilding
       return if @rebuilding
+
+      # Check for character-based keys first (for uppercase S)
+      if char = event.char
+        case char
+        when 's', 'S'
+          save_to_yaml
+          return
+        end
+      end
 
       case event.key
       when .q?
@@ -328,9 +359,7 @@ module Sheety
       when .back_tab?
         # Previous sheet
         switch_sheet(-1)
-      when .s?
-        # Save to YAML
-        save_to_yaml
+      when .q?
       end
     end
 
@@ -377,6 +406,54 @@ module Sheety
           if char.printable?
             @edit_buffer = @edit_buffer[0...@edit_cursor] + char + @edit_buffer[@edit_cursor..]
             @edit_cursor += 1
+          end
+        end
+      end
+    end
+
+    private def handle_filename_edit_key_event(event : Termisu::Event::Key) : Nil
+      case event.key
+      when .escape?
+        # Cancel filename edit
+        @filename_edit_mode = false
+        @filename_edit_buffer = ""
+        @filename_edit_cursor = 0
+      when .enter?
+        # Save with the entered filename
+        save_with_filename(@filename_edit_buffer)
+        @filename_edit_mode = false
+        @filename_edit_buffer = ""
+        @filename_edit_cursor = 0
+      when .backspace?
+        # Delete character before cursor
+        if @filename_edit_cursor > 0
+          @filename_edit_buffer = @filename_edit_buffer[0...@filename_edit_cursor - 1] + @filename_edit_buffer[@filename_edit_cursor..]
+          @filename_edit_cursor -= 1
+        end
+      when .delete?
+        # Delete character at cursor
+        if @filename_edit_cursor < @filename_edit_buffer.size
+          @filename_edit_buffer = @filename_edit_buffer[0...@filename_edit_cursor] + @filename_edit_buffer[@filename_edit_cursor + 1..]
+        end
+      when .left?
+        # Move cursor left
+        @filename_edit_cursor = {@filename_edit_cursor - 1, 0}.max
+      when .right?
+        # Move cursor right
+        @filename_edit_cursor = {@filename_edit_cursor + 1, @filename_edit_buffer.size}.min
+      when .home?
+        # Move cursor to start
+        @filename_edit_cursor = 0
+      when .end?
+        # Move cursor to end
+        @filename_edit_cursor = @filename_edit_buffer.size
+      else
+        # Check if this is a printable character
+        if char = event.char
+          # Don't include control characters
+          if char.printable?
+            @filename_edit_buffer = @filename_edit_buffer[0...@filename_edit_cursor] + char + @filename_edit_buffer[@filename_edit_cursor..]
+            @filename_edit_cursor += 1
           end
         end
       end
@@ -541,11 +618,13 @@ module Sheety
     end
 
     private def enter_edit_mode : Nil
-      # Check if trying to edit a formula cell without sheety available
-      if formula_cell? && !@sheety_available
-        show_notification("Cannot edit formulas: sheety not found in PATH", Notification::Level::Error)
-        return
-      end
+      # In light mode, don't allow editing formula cells
+      {% if flag?(:light_mode) %}
+        if formula_cell?
+          show_notification("Formulas are read-only in light mode", Notification::Level::Warning)
+          return
+        end
+      {% end %}
 
       @edit_mode = true
 
@@ -570,7 +649,8 @@ module Sheety
     end
 
     private def update_notification : Nil
-      # Auto-clear expired notifications
+      # Auto-clear expired notifications, but not while rebuilding
+      return if @rebuilding
       if notif = @notification
         @notification = nil if notif.expired?
       end
@@ -582,56 +662,91 @@ module Sheety
 
       # If editing a formula cell, we need to recompile
       if formula_cell?
-        # Validate that it's still a formula (starts with =)
+        # Ensure formula starts with = (add it if missing)
         unless @edit_buffer.starts_with?("=")
-          show_notification("Formula must start with =", Notification::Level::Warning)
-          @edit_mode = false
-          @edit_buffer = ""
-          @edit_cursor = 0
-          return
+          @edit_buffer = "=" + @edit_buffer
         end
 
-        # Save the new formula to YAML
-        update_formula_in_yaml(sheet_name, cell_ref, @edit_buffer)
+        # Update the formula in sheet_data
+        # Find the cell in sheet_data and update its formula
+        if cells = @sheet_data[sheet_name]?
+          cells.each_with_index do |cell|
+            if cell[:cell] == cell_ref
+              # Update the formula in the array
+              @sheet_data[sheet_name] = cells.map do |c|
+                if c[:cell] == cell_ref
+                  {cell: c[:cell], formula: @edit_buffer, value: c[:value]}
+                else
+                  c
+                end
+              end
+              break
+            end
+          end
+        end
 
-        # Trigger self-rebuild by invoking sheety
-        source_file = @source_file
-        if source_file && !source_file.empty?
-          # Check if sheety is available
-          unless Process.find_executable("sheety")
-            show_notification("Cannot rebuild: sheety not found", Notification::Level::Error)
+        # Ensure we have an intermediate file
+        rebuild_file = @intermediate_file || @source_file
+        return unless rebuild_file && !rebuild_file.empty?
+
+        # Save current state to intermediate file as YAML
+        # Build YAML structure directly from current state
+        save_to_yaml_file(rebuild_file)
+
+        if rebuild_file && !rebuild_file.empty?
+          {% unless flag?(:light_mode) %}
+            # Check if crystal is available for rebuilding
+            unless Process.find_executable("crystal")
+              show_notification("Cannot rebuild: crystal not found", Notification::Level::Error)
+              @edit_mode = false
+              @edit_buffer = ""
+              @edit_cursor = 0
+              render
+              return
+            end
+
+            # Show notification
+            show_notification("Rebuilding...", Notification::Level::Info)
             @edit_mode = false
             @edit_buffer = ""
             @edit_cursor = 0
             render
-            return
-          end
 
-          # Show notification
-          show_notification("Rebuilding...", Notification::Level::Info)
-          @edit_mode = false
-          @edit_buffer = ""
-          @edit_cursor = 0
-          render
+            # Build the new binary in background
+            # After build completes, we'll exec to replace this process
+            @rebuilding = true
+            spawn do
+              # Use Rebuilder to rebuild in-process
+              # Use the original source file for tracking, but rebuild from intermediate file
+              original_for_rebuild = @original_source_file || rebuild_file
+              rebuilder = Sheety::Rebuilder.new(original_for_rebuild)
+              rebuilder.set_intermediate_file(rebuild_file)
 
-          # Spawn a fiber to handle rebuild while TUI stays visible
-          @rebuilding = true
-          spawn do
-            null_io = File.open("/dev/null", "w")
-            status = Process.run("sheety", [source_file], output: null_io, error: null_io)
-            null_io.close
+              # Set UUID if we have it (from _ui_state in YAML)
+              begin
+                yaml_content = File.read(rebuild_file)
+                data = YAML.parse(yaml_content)
+                if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
+                  rebuilder.set_spreadsheet_uuid(data["_ui_state"]["spreadsheet_uuid"].as_s)
+                end
+              rescue
+                # Ignore errors reading UUID
+              end
 
-            @rebuilding = false
+              binary_path = rebuilder.rebuild
 
-            if status.success?
-              # Rebuild succeeded - close TUI and exit so new binary can launch
-              @termisu.close
-              exit 0
-            else
-              # Rebuild failed - show error
-              show_notification("Rebuild failed", Notification::Level::Error)
+              @rebuilding = false
+
+              if binary_path && File.exists?(binary_path)
+                @pending_exec = binary_path
+              else
+                show_notification("Rebuild failed", Notification::Level::Error)
+              end
             end
-          end
+          {% else %}
+            # Light mode: formulas are read-only, just show a message
+            show_notification("Formulas are read-only in light mode", Notification::Level::Warning)
+          {% end %}
         else
           # Fallback: exit with code 42 if no source file known
           exit 42
@@ -670,13 +785,46 @@ module Sheety
       @source_file = source_file
     end
 
+    def set_intermediate_file(intermediate_file : String) : Nil
+      @intermediate_file = intermediate_file
+    end
+
+    def set_original_source_file(original_file : String) : Nil
+      @original_source_file = original_file
+    end
+
     def refresh_current_sheet : Nil
       initialize_grid
     end
 
     def save_to_yaml : Nil
-      source_file = @source_file
+      # Use original source file for saves, not intermediate file
+      source_file = @original_source_file || @source_file
       return if source_file.nil? || source_file.empty?
+
+      # Enter filename edit mode with current filename as default
+      @filename_edit_mode = true
+      @filename_edit_buffer = source_file
+      @filename_edit_cursor = source_file.size
+    end
+
+    private def save_with_filename(filename : String) : Nil
+      # Save to the specified filename
+      do_save(filename)
+
+      # Update original_source_file to remember this choice for future saves
+      @original_source_file = filename
+
+      # Also save to the intermediate file if it exists and is different
+      if intermediate = @intermediate_file
+        do_save(intermediate) if intermediate != filename
+      end
+    end
+
+    private def do_save(filename : String) : Nil
+      # Temporarily override source_file for this save
+      original_source_file = @source_file
+      @source_file = filename
 
       if callback = @save_callback
         callback.call
@@ -684,83 +832,211 @@ module Sheety
         # Default save implementation
         perform_save
       end
+
+      # Restore original source file
+      @source_file = original_source_file
     end
 
     private def perform_save : Nil
       source_file = @source_file
       return if source_file.nil? || source_file.empty?
 
-      # Build YAML structure
-      yaml_structure = {} of String => Hash(String, Hash(String, String | Float64))
-
-      # Build a map of original formulas by sheet and cell
-      formula_map = {} of String => Hash(String, String)
-      @sheet_data.each do |sheet, cells|
-        formula_map[sheet] = {} of String => String
-        cells.each do |cell|
-          unless cell[:formula].empty?
-            formula_map[sheet][cell[:cell]] = cell[:formula]
-          end
-        end
-      end
+      # Build internal format structure
+      internal_format = {} of String => Hash(String, Hash(String, Sheety::Functions::CellValue))
 
       @sheets.each do |sheet|
-        sheet_data = {} of String => Hash(String, String | Float64)
-        formulas = formula_map[sheet]?
+        sheet_data = {} of String => Hash(String, Sheety::Functions::CellValue)
 
-        # Scan the entire grid for this sheet
-        (0...@max_row).each do |row|
-          (0...@max_col).each do |col|
-            # Convert to cell reference
-            cell_ref = num_to_col(col + 1) + (row + 1).to_s
+        # Only iterate over cells that have original data in @sheet_data
+        # This avoids scanning all 1 million cells
+        original_cells = @sheet_data[sheet]?
+        next unless original_cells
 
-            # Get current value from grid or callback
-            current_value = if getter = @value_getter_callback
-                              getter.call(sheet, cell_ref)
+        original_cells.each do |cell|
+          cell_ref = cell[:cell]
+
+          # Get current value from grid or callback
+          current_value = if getter = @value_getter_callback
+                            getter.call(sheet, cell_ref)
+                          else
+                            # Parse cell reference to get grid position
+                            if match = cell_ref.match(/^([A-Za-z]+)(\d+)$/)
+                              col = col_to_num(match[1]) - 1
+                              row = match[2].to_i - 1
+                              if row >= 0 && row < @max_row && col >= 0 && col < @max_col
+                                @grid[row][col]
+                              else
+                                cell[:value]
+                              end
                             else
-                              @grid[row][col]
+                              cell[:value]
                             end
+                          end
 
-            # Skip empty cells
-            next if current_value.empty?
+          # Skip empty cells
+          next if current_value.empty?
 
-            cell_info = {} of String => String | Float64
+          cell_info = {} of String => Sheety::Functions::CellValue
 
-            # Check if this cell has a formula
-            if formulas && formulas.has_key?(cell_ref)
-              cell_info["formula"] = formulas[cell_ref]
-            end
-
-            # Try to parse as number, otherwise keep as string
-            parsed = current_value.to_f?
-            if parsed && current_value == parsed.to_s
-              cell_info["value"] = parsed
-            else
-              cell_info["value"] = current_value
-            end
-
-            sheet_data[cell_ref] = cell_info
+          # Check if this cell has a formula
+          unless cell[:formula].empty?
+            cell_info["formula"] = cell[:formula]
           end
+
+          # Try to parse as number, otherwise keep as string
+          parsed = current_value.to_f?
+          if parsed && current_value == parsed.to_s
+            cell_info["value"] = parsed
+          else
+            cell_info["value"] = current_value
+          end
+
+          sheet_data[cell_ref] = cell_info
         end
 
         # Only add sheet if it has data
-        yaml_structure[sheet] = sheet_data unless sheet_data.empty?
+        internal_format[sheet] = sheet_data unless sheet_data.empty?
       end
 
-      # Convert to YAML::Any structure to add UI metadata
+      # Determine output format based on file extension
+      ext = File.extname(source_file).downcase
+
+      if ext == ".sheety"
+        # Generate and compile a standalone binary
+        show_notification("Compiling binary...", Notification::Level::Info)
+        @termisu.render
+
+        # First, generate Crystal source code
+        generator = CroupierGenerator.new
+        initial_values = Hash(String, Float64 | String | Bool).new
+
+        # Populate formulas and initial values from internal_format
+        # This is the single source of truth for all cell data
+        internal_format.each do |sheet, cells|
+          cells.each do |cell_ref, cell_data|
+            key = sheet.empty? ? cell_ref : "#{sheet}!#{cell_ref}"
+
+            # Add formula if present
+            if cell_data.has_key?("formula")
+              generator.add_formula(cell_ref, cell_data["formula"].as(String), sheet)
+            end
+
+            # Add value as initial value (for all cells, with or without formulas)
+            if cell_data.has_key?("value")
+              value = cell_data["value"]
+              # Convert ErrorValue and Nil to appropriate types
+              case value
+              when Sheety::Functions::ErrorValue
+                initial_values[key] = value.to_s
+              when Nil
+                initial_values[key] = ""
+              else
+                initial_values[key] = value
+              end
+            end
+          end
+        end
+
+        # Generate the source code (interactive for TUI binary)
+        source_code = generator.generate_source(initial_values, true, source_file, nil)
+
+        if source_code.empty?
+          show_notification("Failed to generate source code", Notification::Level::Error)
+          @termisu.render
+          return
+        end
+
+        # Create a temporary source file
+        temp_source = File.join(DataDir.path, "tmp", "#{File.basename(source_file, ext)}.cr")
+        File.write(temp_source, source_code)
+
+        # Compile the binary with appropriate flags
+        # Keep the .sheety extension for the binary
+        binary_name = source_file
+
+        compile_result = Process.run("crystal", ["build", "-Dpreview_mt", "-Dno_embedded_files", temp_source, "-o", binary_name],
+          output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+
+        if compile_result.success?
+          show_notification("Compiled binary: #{binary_name}", Notification::Level::Info)
+        else
+          show_notification("Compilation failed", Notification::Level::Error)
+        end
+      elsif ext == ".cr"
+        # Generate Crystal source code
+        generator = CroupierGenerator.new
+        initial_values = Hash(String, Float64 | String | Bool).new
+
+        # Populate formulas and initial values from internal_format
+        internal_format.each do |sheet, cells|
+          cells.each do |cell_ref, cell_data|
+            key = sheet.empty? ? cell_ref : "#{sheet}!#{cell_ref}"
+
+            # Add formula if present
+            if cell_data.has_key?("formula")
+              generator.add_formula(cell_ref, cell_data["formula"].as(String), sheet)
+            end
+
+            # Add value as initial value
+            if cell_data.has_key?("value")
+              value = cell_data["value"]
+              case value
+              when Sheety::Functions::ErrorValue
+                initial_values[key] = value.to_s
+              when Nil
+                initial_values[key] = ""
+              else
+                initial_values[key] = value
+              end
+            end
+          end
+        end
+
+        # Generate the source code (non-interactive for standalone code generation)
+        source_code = generator.generate_source(initial_values, true, source_file, nil)
+
+        if source_code.empty?
+          show_notification("Failed to generate source code", Notification::Level::Error)
+        else
+          File.write(source_file, source_code)
+          show_notification("Generated Crystal code: #{source_file}", Notification::Level::Info)
+        end
+      elsif ext == ".xlsx"
+        # Save as Excel
+        begin
+          Sheety::ExcelExporter.export_to_xlsx(internal_format, source_file)
+          show_notification("Saved to #{source_file}", Notification::Level::Info)
+        rescue ex : Exception
+          show_notification("Excel export failed: #{ex.message}", Notification::Level::Error)
+        end
+      else
+        # Save as YAML (default for .yaml, .yml, or unknown extensions)
+        yaml_structure = internal_format_to_yaml_structure(internal_format)
+        File.open(source_file, "w") do |file|
+          file.print(yaml_structure.to_yaml)
+          file.flush
+          file.fsync
+        end
+        show_notification("Saved to #{source_file}", Notification::Level::Info)
+      end
+
+      @termisu.render
+    end
+
+    private def internal_format_to_yaml_structure(internal_format : Hash(String, Hash(String, Hash(String, Sheety::Functions::CellValue)))) : Hash(YAML::Any, YAML::Any)
       yaml_any_structure = {} of YAML::Any => YAML::Any
-      yaml_structure.each do |key, value|
-        # Convert the inner hash (cell_data) to YAML::Any
+      internal_format.each do |sheet, cells|
         cell_data_any = {} of YAML::Any => YAML::Any
-        value.each do |cell_ref, cell_info|
-          # Convert cell_info to YAML::Any
+        cells.each do |cell_ref, cell_info|
           cell_info_any = {} of YAML::Any => YAML::Any
           cell_info.each do |info_key, info_value|
-            cell_info_any[YAML::Any.new(info_key)] = YAML::Any.new(info_value)
+            # Convert CellValue to YAML-compatible types
+            yaml_value = convert_cell_value_to_yaml(info_value)
+            cell_info_any[YAML::Any.new(info_key)] = YAML::Any.new(yaml_value)
           end
           cell_data_any[YAML::Any.new(cell_ref)] = YAML::Any.new(cell_info_any)
         end
-        yaml_any_structure[YAML::Any.new(key)] = YAML::Any.new(cell_data_any)
+        yaml_any_structure[YAML::Any.new(sheet)] = YAML::Any.new(cell_data_any)
       end
 
       # Add UI state metadata
@@ -770,69 +1046,89 @@ module Sheety
       ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
       yaml_any_structure[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
 
-      # Write to YAML file
-      File.open(source_file, "w") do |file|
-        file.print(yaml_any_structure.to_yaml)
-        file.flush
-        file.fsync
-      end
-      show_notification("Saved to #{source_file}", Notification::Level::Info)
-      @termisu.render
+      yaml_any_structure
     end
 
-    private def update_formula_in_yaml(sheet_name : String, cell_ref : String, new_formula : String) : Nil
-      source_file = @source_file
-      return if source_file.nil? || source_file.empty?
+    private def convert_cell_value_to_yaml(value : Sheety::Functions::CellValue) : String | Float64 | Bool | Nil
+      case value
+      when String, Float64, Bool, Nil
+        value
+      when Sheety::Functions::ErrorValue
+        value.to_s
+      else
+        value.to_s
+      end
+    end
 
-      # Read existing YAML
-      yaml_content = File.read(source_file)
-      data = YAML.parse(yaml_content)
+    private def save_to_yaml_file(filename : String) : Nil
+      # Build YAML structure from current state
+      yaml_structure = {} of YAML::Any => YAML::Any
 
-      # Build new data structure with updated formula
-      # We need to reconstruct everything since YAML::Any is immutable
-      new_data = {} of YAML::Any => YAML::Any
+      @sheets.each do |sheet|
+        sheet_data_any = {} of YAML::Any => YAML::Any
+
+        # Only iterate over cells that have data
+        original_cells = @sheet_data[sheet]?
+        next unless original_cells
+
+        original_cells.each do |cell|
+          cell_ref = cell[:cell]
+
+          # Get current value from Croupier store
+          current_value = if getter = @value_getter_callback
+                            getter.call(sheet, cell_ref)
+                          else
+                            cell[:value]
+                          end
+
+          # Skip empty cells
+          next if current_value.empty?
+
+          cell_info_any = {} of YAML::Any => YAML::Any
+
+          # Add formula if present
+          unless cell[:formula].empty?
+            cell_info_any[YAML::Any.new("formula")] = YAML::Any.new(cell[:formula])
+          end
+
+          # Add value
+          parsed = current_value.to_f?
+          if parsed && current_value == parsed.to_s
+            cell_info_any[YAML::Any.new("value")] = YAML::Any.new(parsed)
+          else
+            cell_info_any[YAML::Any.new("value")] = YAML::Any.new(current_value)
+          end
+
+          sheet_data_any[YAML::Any.new(cell_ref)] = YAML::Any.new(cell_info_any)
+        end
+
+        yaml_structure[YAML::Any.new(sheet)] = YAML::Any.new(sheet_data_any) unless sheet_data_any.empty?
+      end
+
+      # Add UI state
       ui_metadata = {} of YAML::Any => YAML::Any
       ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(@sheets[@current_sheet_idx])
       ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
-      new_data[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
 
-      cell_found = false
-
-      data.as_h.each do |sheet_key, sheet_value|
-        next if sheet_key.as_s == "_ui_state"
-
-        new_sheet = {} of YAML::Any => YAML::Any
-        sheet_value.as_h.each do |cell_key, cell_value|
-          new_cell = {} of YAML::Any => YAML::Any
-
-          # Copy cell data
-          cell_value.as_h.each do |k, v|
-            new_cell[YAML::Any.new(k.as_s)] = v
+      # Preserve spreadsheet_uuid if it exists
+      begin
+        if File.exists?(filename)
+          existing_content = File.read(filename)
+          existing_data = YAML.parse(existing_content)
+          if existing_data.as_h? && existing_data["_ui_state"]? && existing_data["_ui_state"]["spreadsheet_uuid"]?
+            ui_metadata[YAML::Any.new("spreadsheet_uuid")] = existing_data["_ui_state"]["spreadsheet_uuid"]
           end
-
-          # Update formula if this is the cell
-          if sheet_key.as_s == sheet_name && cell_key.as_s == cell_ref
-            new_cell[YAML::Any.new("formula")] = YAML::Any.new(new_formula)
-            cell_found = true
-          end
-
-          new_sheet[YAML::Any.new(cell_key.as_s)] = YAML::Any.new(new_cell)
         end
-
-        new_data[YAML::Any.new(sheet_key.as_s)] = YAML::Any.new(new_sheet)
+      rescue
+        # Ignore errors
       end
 
-      unless cell_found
-        show_notification("Error: Could not find cell in YAML", Notification::Level::Error)
-        return
-      end
+      yaml_structure[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
 
-      # Write back with explicit flush
-      new_yaml = new_data.to_yaml
-      File.open(source_file, "w") do |file|
-        file.print(new_yaml)
+      # Write to file
+      File.open(filename, "w") do |file|
+        file.print(yaml_structure.to_yaml)
         file.flush
-        # Also call fsync to ensure OS writes to disk
         file.fsync
       end
     end
@@ -855,7 +1151,7 @@ module Sheety
       render_status
 
       # Show cursor only in edit mode, hide otherwise
-      if @edit_mode
+      if @edit_mode || @filename_edit_mode
         # Cursor already positioned in render_formula_bar
       else
         @termisu.hide_cursor
@@ -973,11 +1269,31 @@ module Sheety
         @termisu.set_cell(i, formula_y, ' ', fg: @fg_default, bg: @bg_default)
       end
 
-      # Get current cell info
+      # Get current cell info (needed for edit/normal modes)
       cell_ref = current_cell_ref
       formula = current_cell_formula
 
-      if @edit_mode
+      if @filename_edit_mode
+        # Filename edit mode: show the save filename prompt
+        label = "Save as: "
+        label.each_char_with_index do |char, i|
+          break if i >= @grid_width
+          @termisu.set_cell(i, formula_y, char, fg: @fg_header, bg: @bg_default, attr: Termisu::Attribute::Bold)
+        end
+
+        # Show filename edit buffer
+        display_buffer = truncate_value(@filename_edit_buffer, @grid_width - label.size)
+        display_buffer.each_char_with_index do |char, i|
+          x = label.size + i
+          break if x >= @grid_width
+          @termisu.set_cell(x, formula_y, char, fg: @fg_active, bg: @bg_default, attr: Termisu::Attribute::Bold)
+        end
+
+        # Position actual cursor at edit position
+        cursor_x = label.size + @filename_edit_cursor
+        cursor_x = {@grid_width - 1, cursor_x}.min # Clamp to screen width
+        @termisu.set_cursor(cursor_x, formula_y)
+      elsif @edit_mode
         # Edit mode: show the edit buffer
         label = "Editing #{cell_ref}: "
         label.each_char_with_index do |char, i|
@@ -1060,9 +1376,24 @@ module Sheety
         @termisu.set_cell(i, status_y, char, fg: status_color, bg: @bg_status, attr: Termisu::Attribute::Bold)
       end
 
-      # Draw help hints (only if not showing notification, to avoid overlap)
-      unless notif = @notification
-        help_text = @edit_mode ? "ENTER:Save | ESC:Cancel" : "Arrows:Move | ENTER:Edit | Click:Select | DblClick:Edit | Tab:Sheet | S:Save | Q:Quit"
+      # Draw notification or help hints in the right side of status bar
+      if notif = @notification
+        # Show notification on the right side with its color
+        notif_x = {@grid_width - notif.text.size, 0}.max
+        notif.text.each_char_with_index do |char, i|
+          if notif_x + i < @grid_width
+            @termisu.set_cell(notif_x + i, status_y, char, fg: notif.level.color, bg: @bg_status, attr: Termisu::Attribute::Bold)
+          end
+        end
+      else
+        # Show help hints when no notification
+        help_text = if @filename_edit_mode
+                      "ENTER:Save | ESC:Cancel"
+                    elsif @edit_mode
+                      "ENTER:Save | ESC:Cancel"
+                    else
+                      "Arrows:Move | ENTER:Edit | Click:Select | DblClick:Edit | Tab:Sheet | S:Save | Q:Quit"
+                    end
         help_x = {@grid_width - help_text.size, 0}.max
 
         help_text.each_char_with_index do |char, i|

@@ -37,21 +37,6 @@ module Sheety
       @attr.fetch("name", "").as(String)
     end
 
-    # Get the expression string for this token
-    def get_expr : String
-      @attr.fetch("expr", name).as(String)
-    end
-
-    # Check if an attribute exists
-    def has?(key : String) : Bool
-      @attr.has_key?(key)
-    end
-
-    # Get an attribute value
-    def get(key : String) : String | Bool | Float64 | Int32
-      @attr[key]
-    end
-
     # Add this token to the AST - called during parsing
     def ast(tokens : Array(Token), stack : Array(Token), builder : AstBuilder) : Nil
       tokens << self
@@ -65,14 +50,6 @@ module Sheety
     # Compile the token to executable code
     def compile : (Array(Float64 | String) -> Float64 | String) | Float64 | String
       raise FormulaError.new("Compile not implemented for #{self.class}")
-    end
-
-    def to_s(io : IO) : Nil
-      io << "#{name} <#{self.class.name}>"
-    end
-
-    def inspect(io : IO) : Nil
-      to_s(io)
     end
   end
 end
