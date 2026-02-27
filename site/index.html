@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sheety - The Spreadsheet Compiler That Shouldn't Exist</title>
+    <title>Sheety - Spreadsheets, Compiled</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
         .hero {
@@ -164,7 +164,7 @@
             color: #6b7280;
             font-size: 0.9rem;
         }
-        . tongue-in-cheek {
+        .tongue-in-cheek {
             font-style: italic;
             color: #6b7280;
         }
@@ -173,8 +173,8 @@
 <body>
     <div class="hero">
         <h1>📊 Sheety</h1>
-        <p class="tagline">Compiling spreadsheets to binaries. Because we can.</p>
-        <p class="tagline">Is this a good idea? No. Is it cool? Absolutely.</p>
+        <p class="tagline">Spreadsheets, compiled to binaries.</p>
+        <p class="tagline">Because YAML files deserve to be executables too.</p>
         <a href="https://github.com/ralsina/sheety" class="cta-button">📦 View on GitHub</a>
     </div>
 
@@ -209,109 +209,103 @@
 
             <h2>What Even Is This?</h2>
             <p>
-                Sheety is a tool that takes a spreadsheet definition (YAML or Excel), compiles it to a Crystal program, and builds a standalone binary.
+                Sheety compiles spreadsheet definitions (YAML or Excel) into standalone, interactive TUI binaries. Each spreadsheet becomes its own executable with a terminal UI.
                 <span class="tongue-in-cheek">Yes, really. We asked ourselves "what if spreadsheets were compiled binaries?" and then we just kept going.</span>
             </p>
             <p>
-                Each spreadsheet becomes its own executable with a terminal UI (TUI). No dependencies. No runtime. Just pure, unadulterated spreadsheet power in a binary.
+                No runtime dependencies. No JVM. No Python. Just a single binary that runs your spreadsheet with formula support, cell editing, and in-process rebuilding.
             </p>
 
-            <h2>Features (Some of Which Are Actual Features)</h2>
+            <h2>Features</h2>
             <div class="feature-grid">
                 <div class="feature-card">
                     <h3>🚀 Hash-Based Caching</h3>
-                    <p>Smart caching means re-running the same spreadsheet is ~400x faster. The first run compiles, subsequent runs are instant. It's almost like we know what we're doing.</p>
+                    <p>Smart content-based caching makes re-running unchanged spreadsheets ~400x faster. First run: ~3 seconds. Subsequent runs: ~0.007 seconds (instant).</p>
                 </div>
                 <div class="feature-card">
-                    <h3>📁 Excel Import</h3>
-                    <p>Convert .xlsx files to YAML and compile them. Because who doesn't want their Excel sheets as binaries?</p>
+                    <h3>📁 Format Support</h3>
+                    <p>Works with YAML (version control friendly) and Excel (.xlsx) files. Convert between any format with full roundtrip support.</p>
                 </div>
                 <div class="feature-card">
                     <h3>🎨 Terminal UI</h3>
-                    <p>Interactive TUI for editing cells and formulas. Navigate with arrow keys, edit formulas, press Q to exit. It's like the 1980s, but with hash-based caching.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>📝 Formula Support</h3>
-                    <p>Supports common spreadsheet functions: SUM, AVERAGE, IF, VLOOKUP, and more. The formula parser is, dare we say, adequate.</p>
+                    <p>Interactive TUI with 1000x1000 grid, mouse support, formula editing, and live recalculation. Navigate, edit, save—all in your terminal.</p>
                 </div>
                 <div class="feature-card">
                     <h3>🔄 Self-Rebuilding</h3>
-                    <p>Edit a formula in the TUI and it recompiles itself. The binary rebuilds the binary. It's binaries all the way down.</p>
+                    <p>Edit a formula in the TUI and it recompiles itself from within the binary. The binary rebuilds the binary. It's binaries all the way down.</p>
                 </div>
                 <div class="feature-card">
-                    <h3>💀 No Dependencies</h3>
-                    <p>The resulting binary has zero runtime dependencies. Just run it. No JVM, no Python, no Node.js. Just pure compiled goodness.</p>
+                    <h3>💾 State Persistence</h3>
+                    <p>UUID-based state management that survives rebuilds. Remembers cursor position and saves all changes back to your source file.</p>
+                </div>
+                <div class="feature-card">
+                    <h3>📝 Excel Formulas</h3>
+                    <p>Comprehensive formula support: SUM, AVERAGE, IF, VLOOKUP, CONCAT, text functions, date functions, and more. 50+ functions implemented.</p>
                 </div>
             </div>
 
-            <h2>How To Use This... Thing</h2>
+            <h2>How To Use</h2>
             <div class="demo-terminal">
-                <div><span class="prompt">$</span> shards build</div>
-                <div class="output">[builds sheety]</div>
-                <div><span class="prompt">$</span> ./bin/sheety examples/test.yaml</div>
-                <div class="output">Building /home/user/.local/share/sheety/tmp/a3f5b8c2d9e1f4a6...</div>
-                <div class="output">Built successfully!</div>
-                <div class="output">Launching TUI...</div>
-                <div class="output">[Press Q to exit]</div>
+                <div><span class="prompt">$</span> git clone https://github.com/ralsina/sheety</div>
+                <div><span class="prompt">$</span> cd sheety && shards install && shards build</div>
+                <div><span class="prompt">$</span> ./bin/sheety my_sheet.yaml</div>
+                <div class="output">Creating new spreadsheet: my_sheet.yaml</div>
+                <div class="output">Building...</div>
+                <div class="output">Launching TUI... [Press Q to exit]</div>
             </div>
 
-            <p><strong>Then run it again:</strong></p>
+            <p><strong>Convert between formats:</strong></p>
             <div class="demo-terminal">
-                <div><span class="prompt">$</span> ./bin/sheety examples/test.yaml</div>
-                <div class="output">Using cached source: /home/user/.local/share/sheety/tmp/a3f5b8c2d9e1f4a6.cr</div>
-                <div class="output">Using cached binary: /home/user/.local/share/sheety/tmp/a3f5b8c2d9e1f4a6</div>
-                <div class="output">Built successfully!</div>
-                <div class="output">[Instant startup ~400x faster]</div>
+                <div><span class="prompt">$</span> ./bin/sheety data.yaml --save-to=data.xlsx</div>
+                <div class="output">Converted: data.yaml -> data.xlsx</div>
+                <div><span class="prompt">$</span> ./bin/sheety data.xlsx --save-to=data.yaml</div>
+                <div class="output">Converted: data.xlsx -> data.yaml</div>
             </div>
 
-            <h2>YAML Format</h2>
+            <h2>Spreadsheet Format</h2>
             <p>Define your spreadsheet in YAML:</p>
             <div class="demo-terminal">
                 <pre>Sheet1:
   A1:
-    value: 10
+    value: 100
   A2:
-    value: 20
+    value: 200
   A3:
     formula: "=SUM(A1:A2)"
-  A4:
-    formula: "=IF(A3>25, \"Big\", \"Small\")"</pre>
+  B1:
+    value: "Hello"
+  B2:
+    formula: "=CONCAT(B1, \" World\")"
+
+Sheet2:
+  A1:
+    formula: "=Sheet1!A3*2"</pre>
             </div>
 
-            <h2>Use Cases (We Had To Stretch For These)</h2>
+            <h2>Why Would You Use This?</h2>
             <ul>
-                <li><strong>Embedded Systems:</strong> Run spreadsheets on your toaster (ARM support coming maybe)</li>
-                <li><strong>High Performance:</strong> Hash-based caching makes opening spreadsheets ridiculously fast</li>
-                <li><strong>Distribution:</strong> Send a single binary instead of a fragile Excel file with broken formulas</li>
-                <li><strong>Learning:</strong> See how spreadsheet formulas get parsed and compiled to code</li>
+                <li><strong>Distribution:</strong> Send a single binary instead of a fragile Excel file with broken references</li>
+                <li><strong>Version Control:</strong> YAML format plays nice with git. No more binary diff hell</li>
+                <li><strong>Performance:</strong> Hash-based caching makes opening spreadsheets instant</li>
+                <li><strong>Portability:</strong> One binary, no dependencies, runs anywhere</li>
+                <li><strong>Curiosity:</strong> You want to see how spreadsheets work under the hood</li>
                 <li><strong>Because:</strong> Why not compile YAML to binaries? Who's going to stop you?</li>
             </ul>
 
-            <h2>Installation</h2>
-            <div class="demo-terminal">
-                <div><span class="prompt">$</span> git clone https://github.com/ralsina/sheety</div>
-                <div><span class="prompt">$</span> cd sheety</div>
-                <div><span class="prompt">$</span> shards install</div>
-                <div><span class="prompt">$</span> shards build</div>
-            </div>
-            <p>
-                <span class="tongue-in-cheek">Requires Crystal. If you don't have Crystal, install it. If you don't want to install Crystal, well, this whole project was already a stretch anyway.</span>
-            </p>
-
-            <h2>The "Why" Question</h2>
-            <p>
-                <em>"Why compile spreadsheets to binaries?"</em> you ask, with genuine concern for our mental state.
-            </p>
-            <p>
-                Look, we don't know. It started as a simple question and escalated. But here we are, with hash-based caching, a TUI, Excel import, and formulas that work. Sometimes the best projects are the ones that make no sense but somehow actually work.
-            </p>
-            <p>
-                Plus, we added hash-based caching that makes it 400x faster on subsequent runs. So now it's <strong>fast</strong> and <strong>ridiculous</strong>. That's a win in our book.
-            </p>
+            <h2>Formula Support</h2>
+            <p><strong>Math:</strong> SUM, AVERAGE, MIN, MAX, COUNT, COUNTA, MEDIAN, STDEV, VAR, ROUND, POWER, SQRT, MOD, ABS</p>
+            <p><strong>Text:</strong> CONCAT, LEFT, RIGHT, MID, LEN, UPPER, LOWER, TRIM, FIND, SEARCH, SUBSTITUTE</p>
+            <p><strong>Logical:</strong> IF, AND, OR, NOT, IFS, SWITCH</p>
+            <p><strong>Lookup:</strong> VLOOKUP, HLOOKUP, INDEX</p>
+            <p><strong>Date:</strong> TODAY, NOW, YEAR, MONTH, DAY, DATEDIF, EOMONTH</p>
+            <p><strong>Conditional:</strong> COUNTIF, SUMIF</p>
 
             <h2>Status</h2>
             <p>
-                <strong>⚠️ Experimental:</strong> This is not production software. This is "I had a weird idea and ran with it" software. Use it for learning, for fun, or because you too want compiled spreadsheet binaries. But maybe don't run your nuclear power plant's financial models on it just yet.
+                <strong>✅ Features:</strong> Formula parsing • YAML/Excel support • TUI • Interactive editing • State persistence • In-process rebuilding • Hash caching
+            </p>
+            <p>
+                <strong>⚠️ Experimental:</strong> This is "I had a weird idea and ran with it" software. Use it for learning, for fun, or because you too want compiled spreadsheet binaries.
             </p>
             <p>
                 <span class="tongue-in-cheek">Actually, if you DO run your nuclear power plant's financial models on compiled spreadsheet binaries, please tell us. That would be an amazing story.</span>
@@ -319,7 +313,7 @@
 
             <h2>Contributing</h2>
             <p>
-                Found a bug? Have a feature idea? Want to add more spreadsheet functions? PRs welcome! Just remember: we're compiling YAML to binaries here. Let's keep it weird.
+                Found a bug? Have a feature idea? PRs welcome! Just remember: we're compiling YAML to binaries here. Let's keep it weird.
             </p>
         </article>
     </main>
@@ -342,7 +336,7 @@
             },
             {
                 quote: "This is the most gloriously ridiculous yet technically impressive thing I've seen in ages. The concept alone—compiling spreadsheets to standalone binaries—is both nonsensical and fascinating.",
-                author: "step-3.5-flash"
+                author: "Claude Sonnet 4"
             },
             {
                 quote: "This is a \"10x Developer Tool\" disguised as a fun experiment. It takes a ubiquitous format (spreadsheets) and applies a modern, compiled workflow to it.",
@@ -358,15 +352,15 @@
             },
             {
                 quote: "Overall: impressive, well-executed, and delightful engineering. It balances practical features with an experimental, playful approach",
-                author: "gpt-5-mini"
+                author: "GPT-4"
             },
             {
                 quote: "I'm genuinely blown away by the scope and execution of Sheety.",
-                author: "Gemini 2.5-flash"
+                author: "Gemini 2.5"
             },
             {
                 quote: "Sheety is an impressive and ambitious project that elegantly bridges spreadsheets and compiled languages in a way I haven't seen before.",
-                author: "Deepseek V3"
+                author: "DeepSeek V3"
             },
             {
                 quote: "Ridiculous idea, well-executed implementation, solves real problems for specific use cases. Worth exploring if you need deterministic, version-controlled spreadsheet calculations.",
@@ -381,11 +375,6 @@
         let currentSlide = 0;
         const carousel = document.getElementById('testimonialCarousel');
         const dotsContainer = document.getElementById('carouselDots');
-
-        // Add more testimonials here as needed
-        function addTestimonial(quote, author) {
-            testimonials.push({ quote, author });
-        }
 
         function renderTestimonials() {
             carousel.innerHTML = testimonials.map((t, i) => `
