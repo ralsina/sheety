@@ -447,7 +447,7 @@ puts ""
         sheet_key_prefix = sheet.empty? ? "" : "#{sheet}!"
 
         cells_array = cells.map do |cell, data|
-          "{cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: Croupier::TaskManager.get(\"#{sheet_key_prefix}#{cell}\") || \"\"}"
+          "{cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: fetch_cell(\"#{sheet_key_prefix}#{cell}\")}"
         end.join(",\n          ")
 
         "  sheet_#{sheet_var_name}_data = [
@@ -502,8 +502,7 @@ end
 
 # Set value getter callback to fetch fresh values from Croupier store
 tui.set_value_getter do |sheet, cell_ref|
-  full_key = sheet.empty? ? cell_ref : sheet + "!" + cell_ref
-  Croupier::TaskManager.get(full_key) || ""
+  fetch_cell(sheet.empty? ? cell_ref : sheet + "!" + cell_ref)
 end
 
 # Set refresh callback to refresh the grid after updates
