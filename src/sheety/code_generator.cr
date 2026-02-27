@@ -27,7 +27,7 @@ module Sheety
     # Visitor methods for each node type
 
     private def visit(node : Number, context : Context) : String
-      node.value.to_s
+      "BigFloat.new(#{node.value.to_s}, precision: 64)"
     end
 
     private def visit(node : StringLiteral, context : Context) : String
