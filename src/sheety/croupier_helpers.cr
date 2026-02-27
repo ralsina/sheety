@@ -105,6 +105,39 @@ module Sheety
         Croupier::TaskManager.set(key, value)
       end
     end
+
+    # Initialize all cells in a range to empty strings
+    # This is needed because Croupier requires all input keys to exist
+    def initialize_range(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Nil
+      # Convert column letters to numbers
+      col_num = ->(col : String) {
+        num = 0
+        col.each_char { |char| num = num * 26 + (char.ord - 'A'.ord + 1) }
+        num
+      }
+
+      # Convert column numbers to letters
+      num_to_col = ->(num : Int32) {
+        result = ""
+        while num > 0
+          num -= 1
+          result = ('A' + (num % 26)).to_s + result
+          num //= 26
+        end
+        result
+      }
+
+      start_col_num = col_num.call(start_col)
+      end_col_num = col_num.call(end_col)
+
+      # Set all cells in range to empty string
+      (start_row..end_row).each do |row|
+        (start_col_num..end_col_num).each do |col|
+          col_str = num_to_col.call(col)
+          Croupier::TaskManager.set(sheet + "!" + col_str + row.to_s, "")
+        end
+      end
+    end
   end
 end
 

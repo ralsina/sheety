@@ -108,7 +108,9 @@ module Sheety
 
           # Parse the element as a mini-formula
           begin
-            elem_ast = Sheety.parse_to_ast("=#{elem_str}")
+            elem_parser = Parser.new
+            _, elem_builder = elem_parser.ast("=#{elem_str}")
+            elem_ast = elem_builder.root
             elements << elem_ast
           rescue ex : Sheety::FormulaError
             # If parsing fails, create a placeholder

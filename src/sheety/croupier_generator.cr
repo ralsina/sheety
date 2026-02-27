@@ -162,8 +162,38 @@ module Sheety
 
     # Generate code to set initial values
     private def generate_setup_code(initial_values : Hash(String, Float64 | String | Bool)) : String
+      # Collect all unique ranges from formulas
+      ranges = Set(NamedTuple(sheet: String, start_col: String, start_row: Int32, end_col: String, end_row: Int32)).new
+
+      @formulas.each do |_, info|
+        formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
+        ast = parse_formula(formula)
+        next if ast.nil?
+
+        # Extract dependencies including expanded ranges
+        dependencies = @extractor.extract(ast, info.sheet)
+        dependencies.each do |dep|
+          # Check if this dependency is a range reference by looking for patterns
+          # We need to find the original range references in the AST
+        end
+
+        # Find range references directly in the calc code
+        calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
+        if calc_code.includes?("fetch_cell_range(")
+          # Extract the range parameters
+          if match = calc_code.match(/fetch_cell_range\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/)
+            ranges << {
+              sheet: match[1],
+              start_col: match[2],
+              start_row: match[3].to_i,
+              end_col: match[4],
+              end_row: match[5].to_i
+            }
+          end
+        end
+      end
+
       # Build a hash of only the cells with actual values
-      # Empty cells don't need to be initialized since fetch_cell returns "" for missing keys
       all_cells = Hash(String, String).new
 
       # Add user-provided values
@@ -177,15 +207,26 @@ module Sheety
         all_cells[key] = value_str
       end
 
-      if all_cells.empty?
-        ""
-      else
-        %{
+      # Build setup code
+      setup = ""
+
+      # First, initialize all ranges to empty strings (required by Croupier)
+      ranges.each do |range|
+        setup += %{
+initialize_range(#{range[:sheet].inspect}, #{range[:start_col].inspect}, #{range[:start_row]}, #{range[:end_col].inspect}, #{range[:end_row]})
+}
+      end
+
+      # Then, set the cells with actual values
+      unless all_cells.empty?
+        setup += %{
 # Set initial cell values
 initialize_cells(#{all_cells.inspect})
 
 }
       end
+
+      setup
     end
 
     # Generate code to execute tasks and print results

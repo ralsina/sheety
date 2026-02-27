@@ -757,6 +757,19 @@ module Sheety
           callback.call(sheet_name, cell_ref, @edit_buffer)
         end
 
+        # Update @sheet_data so the new cell is included in future initialize_grid calls
+        if data = @sheet_data[sheet_name]?
+          # Find existing cell or add new one
+          existing_idx = data.index { |c| c[:cell] == cell_ref }
+          if existing_idx
+            # Update existing cell's value
+            data[existing_idx] = {cell: cell_ref, formula: data[existing_idx][:formula], value: @edit_buffer}
+          else
+            # Add new cell to data
+            data << {cell: cell_ref, formula: "", value: @edit_buffer}
+          end
+        end
+
         # Call the refresh callback if provided to update the grid from store
         if refresh_cb = @refresh_callback
           refresh_cb.call
