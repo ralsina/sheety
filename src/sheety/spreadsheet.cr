@@ -3,6 +3,7 @@ require "uuid"
 require "./importers/excel_importer"
 require "./importers/excel_exporter"
 require "./data_dir"
+require "./croupier_generator"
 
 module Sheety
   # Spreadsheet data structures and converters
@@ -99,7 +100,7 @@ module Sheety
     end
 
     # Write the in-memory representation to a file
-    def self.write(data : WorkbookData, file_path : String) : Nil
+    def self.write(data : WorkbookData, file_path : String, source_file : String? = nil) : Nil
       ext = File.extname(file_path).downcase
 
       case ext
@@ -107,6 +108,10 @@ module Sheety
         write_yaml(data, file_path)
       when ".xlsx"
         write_excel(data, file_path)
+      when ".cr"
+        write_crystal_source(data, file_path, source_file)
+      when ".sheety"
+        write_binary(data, file_path, source_file)
       else
         raise "Unsupported output format: #{ext}"
       end
@@ -115,7 +120,7 @@ module Sheety
     # Convert between any two formats
     def self.convert(from_file : String, to_file : String) : Nil
       data = read(from_file)
-      write(data, to_file)
+      write(data, to_file, from_file)
       puts "Converted: #{from_file} -> #{to_file}"
     end
 
@@ -274,6 +279,93 @@ module Sheety
         raw
       else
         raw.to_s
+      end
+    end
+
+    # Write Crystal source code format
+    private def self.write_crystal_source(data : WorkbookData, file_path : String, source_file : String?) : Nil
+      generator = CroupierGenerator.new
+      initial_values = Hash(String, Float64 | String | Bool).new
+
+      # Convert data to Croupier format
+      data.each do |sheet_name, sheet_data|
+        sheet_data.each do |cell_ref, cell_data|
+          key = "#{sheet_name}!#{cell_ref}"
+
+          if cell_data.has_key?("formula")
+            formula = cell_data["formula"].to_s
+            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
+          elsif cell_data.has_key?("value")
+            value = cell_data["value"]
+            # Skip nil values
+            next if value.nil?
+            # Convert to appropriate type
+            case value
+            when String, Float64, Bool
+              initial_values[key] = value
+            else
+              initial_values[key] = value.to_s
+            end
+          end
+        end
+      end
+
+      # Generate source code
+      source_code = generator.generate_source(initial_values, true, source_file || file_path, nil)
+
+      if source_code.empty?
+        raise "Failed to generate source code"
+      end
+
+      File.write(file_path, source_code)
+    end
+
+    # Write compiled binary format
+    private def self.write_binary(data : WorkbookData, file_path : String, source_file : String?) : Nil
+      generator = CroupierGenerator.new
+      initial_values = Hash(String, Float64 | String | Bool).new
+
+      # Convert data to Croupier format
+      data.each do |sheet_name, sheet_data|
+        sheet_data.each do |cell_ref, cell_data|
+          key = "#{sheet_name}!#{cell_ref}"
+
+          if cell_data.has_key?("formula")
+            formula = cell_data["formula"].to_s
+            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
+          elsif cell_data.has_key?("value")
+            value = cell_data["value"]
+            # Skip nil values
+            next if value.nil?
+            # Convert to appropriate type
+            case value
+            when String, Float64, Bool
+              initial_values[key] = value
+            else
+              initial_values[key] = value.to_s
+            end
+          end
+        end
+      end
+
+      # Generate source code
+      source_file_for_binary = source_file || file_path
+      source_code = generator.generate_source(initial_values, true, source_file_for_binary, nil)
+
+      if source_code.empty?
+        raise "Failed to generate source code"
+      end
+
+      # Compile
+      temp_source = File.join(DataDir.path, "tmp", "#{File.basename(file_path, File.extname(file_path))}.cr")
+      File.write(temp_source, source_code)
+
+      compile_result = Process.run("crystal", ["build", "-Dpreview_mt", "-Dno_embedded_files", temp_source, "-o", file_path],
+        output: Process::Redirect::Inherit,
+        error: Process::Redirect::Inherit)
+
+      unless compile_result.success?
+        raise "Compilation failed"
       end
     end
   end
