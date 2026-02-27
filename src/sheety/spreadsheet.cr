@@ -13,52 +13,85 @@ module Sheety
     alias SheetData = Hash(String, CellData)     # "A1" => {...}, "B1" => {...}
     alias WorkbookData = Hash(String, SheetData) # "Sheet1" => {...}, "Sheet2" => {...}
 
-    # Get or create spreadsheet UUID from a YAML file
-    def self.get_or_create_spreadsheet_uuid(filename : String) : String
+    # Result structure for read operations
+    class SpreadsheetFile
+      property data : WorkbookData
+      property uuid : String
+      property source_file : String
+
+      def initialize(@data : WorkbookData, @uuid : String, @source_file : String)
+      end
+    end
+
+    # Read a file and return the data with metadata
+    def self.read_with_metadata(file_path : String) : SpreadsheetFile
+      ext = File.extname(file_path).downcase
+
+      # Read the data
+      data = case ext
+              when ".yaml", ".yml"
+                read_yaml(file_path)
+              when ".xlsx"
+                read_excel(file_path)
+              else
+                raise "Unsupported input format: #{ext}"
+              end
+
+      # Get or create UUID
+      uuid = get_or_create_uuid_for_data(data, file_path)
+
+      SpreadsheetFile.new(data, uuid, file_path)
+    end
+
+    # Read a file and return the data
+    def self.read(file_path : String) : WorkbookData
+      read_with_metadata(file_path).data
+    end
+
+    # Get or create UUID for spreadsheet data
+    private def self.get_or_create_uuid_for_data(data : WorkbookData, file_path : String) : String
       uuid = nil
 
-      # Try to read existing UUID from YAML
-      begin
-        yaml_content = File.read(filename)
-        data = YAML.parse(yaml_content)
-
-        if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
-          uuid = data["_ui_state"]["spreadsheet_uuid"].as_s
+      # Check if data already has _ui_state with uuid (from read_yaml)
+      ui_state = data["_ui_state"]?
+      if ui_state
+        uuid_value = ui_state["spreadsheet_uuid"]?
+        if uuid_value
+          uuid = uuid_value.to_s
         end
-      rescue
-        # If parsing fails, we'll create a new UUID
       end
 
-      # If no UUID exists, create one and add it to the YAML
+      # Create new UUID if needed
       unless uuid
         uuid = UUID.random.to_s
 
-        # Read the current YAML content
-        yaml_content = File.read(filename)
+        # If it's a YAML file, write the UUID back to it
+        if File.extname(file_path).downcase == ".yaml"
+          # Add UUID to _ui_state section
+          yaml_content = File.read(file_path)
 
-        # Check if _ui_state section exists and if it has spreadsheet_uuid
-        if yaml_content.includes?("_ui_state:")
-          if yaml_content.includes?("spreadsheet_uuid:")
-            # Already has spreadsheet_uuid, don't add it again
-            # Try to extract it
-            yaml_content.each_line do |line|
-              if line.includes?("spreadsheet_uuid:")
-                match = line.match(/spreadsheet_uuid:\s*(\S+)/)
-                if match
-                  uuid = match[1]
-                  break
+          if yaml_content.includes?("_ui_state:")
+            if yaml_content.includes?("spreadsheet_uuid:")
+              # Already has it, try to extract
+              yaml_content.each_line do |line|
+                if line.includes?("spreadsheet_uuid:")
+                  match = line.match(/spreadsheet_uuid:\s*(\S+)/)
+                  if match
+                    uuid = match[1]
+                    break
+                  end
                 end
               end
+            else
+              # Append the UUID to existing _ui_state section
+              yaml_content = yaml_content.gsub(/(_ui_state:)/, "\\1\n  spreadsheet_uuid: #{uuid}")
+              File.write(file_path, yaml_content)
             end
           else
-            # Append the UUID to existing _ui_state section
-            yaml_content = yaml_content.gsub(/(_ui_state:)/, "\\1\n  spreadsheet_uuid: #{uuid}")
-            File.write(filename, yaml_content)
+            # Add _ui_state section at the end
+            yaml_content = yaml_content + "\n_ui_state:\n  spreadsheet_uuid: #{uuid}\n"
+            File.write(file_path, yaml_content)
           end
-        else
-          # Add _ui_state section at the end
-          yaml_content = yaml_content + "\n_ui_state:\n  spreadsheet_uuid: #{uuid}\n"
-          File.write(filename, yaml_content)
         end
       end
 

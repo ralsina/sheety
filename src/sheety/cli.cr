@@ -63,18 +63,19 @@ module Sheety
       end
 
       # Interactive mode: build binary and launch TUI
-      # Read the spreadsheet data (works with any format)
-      data = Spreadsheet.read(filename)
+      # Read the spreadsheet data with metadata (works with any format)
+      spreadsheet_file = Spreadsheet.read_with_metadata(filename)
+      data = spreadsheet_file.data
+      spreadsheet_uuid = spreadsheet_file.uuid
 
-      # Get or create persistent UUID for this spreadsheet
-      # For non-YAML files, we need to create a YAML intermediate file first
-      if File.extname(filename).downcase != ".yaml"
+      # For non-YAML files, we need a YAML intermediate file
+      if File.extname(spreadsheet_file.source_file).downcase != ".yaml"
         temp_yaml = File.join(DataDir.path, "tmp", "#{UUID.random.to_s}.yaml")
         Spreadsheet.write(data, temp_yaml)
         filename = temp_yaml
+      else
+        filename = spreadsheet_file.source_file
       end
-
-      spreadsheet_uuid = Spreadsheet.get_or_create_spreadsheet_uuid(filename)
 
       # Calculate hash of source file for caching (for binary naming)
       file_hash = calculate_file_hash(filename)
