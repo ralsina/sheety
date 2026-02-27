@@ -37,7 +37,7 @@ module Sheety
 
       property operator_name : String
 
-      def initialize(@source : String, @context : Hash(String, Float64 | String)? = nil)
+      def initialize(@source : String, @context : Hash(String, BigFloat | String)? = nil)
         @operator_name = ""
         super
       end
@@ -131,35 +131,35 @@ module Sheety
       end
 
       # Compile to actual operator function
-      def compile : Proc(Array(Float64 | String), Float64 | String)
+      def compile : Proc(Array(BigFloat | String), BigFloat | String)
         case @operator_name
         when "+"
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) + args[1].as(Float64)).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) + args[1].as(BigFloat)).as(BigFloat | String)
           }
         when "-"
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) - args[1].as(Float64)).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) - args[1].as(BigFloat)).as(BigFloat | String)
           }
         when "*"
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) * args[1].as(Float64)).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) * args[1].as(BigFloat)).as(BigFloat | String)
           }
         when "/"
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) / args[1].as(Float64)).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) / args[1].as(BigFloat)).as(BigFloat | String)
           }
         when "^"
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) ** args[1].as(Float64)).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) ** args[1].as(BigFloat)).as(BigFloat | String)
           }
         when "u+"
-          ->(args : Array(Float64 | String)) {
-            (+args[0].as(Float64)).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (+args[0].as(BigFloat)).as(BigFloat | String)
           }
         when "u-"
-          ->(args : Array(Float64 | String)) {
-            (-args[0].as(Float64)).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (-args[0].as(BigFloat)).as(BigFloat | String)
           }
         else
           raise FormulaError.new("Unknown operator: #{@operator_name}")
@@ -194,31 +194,31 @@ module Sheety
         @attr["expr"] = "(#{exprs.join(" #{name} ")})"
       end
 
-      def compile : Proc(Array(Float64 | String), Float64 | String)
+      def compile : Proc(Array(BigFloat | String), BigFloat | String)
         case @operator_name
         when "="
-          ->(args : Array(Float64 | String)) {
-            (args[0] == args[1] ? 1.0 : 0.0).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0] == args[1] ? 1.0 : 0.0).as(BigFloat | String)
           }
         when "<>"
-          ->(args : Array(Float64 | String)) {
-            (args[0] != args[1] ? 1.0 : 0.0).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0] != args[1] ? 1.0 : 0.0).as(BigFloat | String)
           }
         when "<"
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) < args[1].as(Float64) ? 1.0 : 0.0).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) < args[1].as(BigFloat) ? 1.0 : 0.0).as(BigFloat | String)
           }
         when ">"
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) > args[1].as(Float64) ? 1.0 : 0.0).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) > args[1].as(BigFloat) ? 1.0 : 0.0).as(BigFloat | String)
           }
         when "<="
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) <= args[1].as(Float64) ? 1.0 : 0.0).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) <= args[1].as(BigFloat) ? 1.0 : 0.0).as(BigFloat | String)
           }
         when ">="
-          ->(args : Array(Float64 | String)) {
-            (args[0].as(Float64) >= args[1].as(Float64) ? 1.0 : 0.0).as(Float64 | String)
+          ->(args : Array(BigFloat | String)) {
+            (args[0].as(BigFloat) >= args[1].as(BigFloat) ? 1.0 : 0.0).as(BigFloat | String)
           }
         else
           raise FormulaError.new("Unknown comparison operator: #{@operator_name}")
@@ -253,11 +253,11 @@ module Sheety
         @attr["expr"] = "(#{exprs.join(" & ")})"
       end
 
-      def compile : Proc(Array(Float64 | String), Float64 | String)
-        ->(args : Array(Float64 | String)) {
-          left = args[0].is_a?(Float64) ? args[0].as(Float64).to_s : args[0].as(String)
-          right = args[1].is_a?(Float64) ? args[1].as(Float64).to_s : args[1].as(String)
-          (left + right).as(Float64 | String)
+      def compile : Proc(Array(BigFloat | String), BigFloat | String)
+        ->(args : Array(BigFloat | String)) {
+          left = args[0].is_a?(BigFloat) ? args[0].as(BigFloat).to_s : args[0].as(String)
+          right = args[1].is_a?(BigFloat) ? args[1].as(BigFloat).to_s : args[1].as(String)
+          (left + right).as(BigFloat | String)
         }
       end
     end
@@ -288,9 +288,9 @@ module Sheety
         @attr["expr"] = "#{tokens[0].get_expr}%"
       end
 
-      def compile : Proc(Array(Float64 | String), Float64 | String)
-        ->(args : Array(Float64 | String)) {
-          (args[0].as(Float64) / 100.0).as(Float64 | String)
+      def compile : Proc(Array(BigFloat | String), BigFloat | String)
+        ->(args : Array(BigFloat | String)) {
+          (args[0].as(BigFloat) / 100.0).as(BigFloat | String)
         }
       end
     end
@@ -322,10 +322,10 @@ module Sheety
         @attr["expr"] = "#{exprs.join(":")}"
       end
 
-      def compile : Proc(Array(Float64 | String), Float64 | String)
+      def compile : Proc(Array(BigFloat | String), BigFloat | String)
         # Range operator - placeholder for now
-        ->(args : Array(Float64 | String)) {
-          "(#{args[0]}:#{args[1]})".as(Float64 | String)
+        ->(args : Array(BigFloat | String)) {
+          "(#{args[0]}:#{args[1]})".as(BigFloat | String)
         }
       end
     end
@@ -382,9 +382,9 @@ module Sheety
         end
       end
 
-      def compile : Proc(Array(Float64 | String), Float64 | String)
-        ->(args : Array(Float64 | String)) {
-          args.join(", ").as(Float64 | String)
+      def compile : Proc(Array(BigFloat | String), BigFloat | String)
+        ->(args : Array(BigFloat | String)) {
+          args.join(", ").as(BigFloat | String)
         }
       end
     end
@@ -416,9 +416,9 @@ module Sheety
         @attr["expr"] = exprs.join(" ")
       end
 
-      def compile : Proc(Array(Float64 | String), Float64 | String)
-        ->(args : Array(Float64 | String)) {
-          "(#{args[0]} #{args[1]})".as(Float64 | String)
+      def compile : Proc(Array(BigFloat | String), BigFloat | String)
+        ->(args : Array(BigFloat | String)) {
+          "(#{args[0]} #{args[1]})".as(BigFloat | String)
         }
       end
     end

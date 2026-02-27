@@ -1,3 +1,4 @@
+require "big"
 require "croupier"
 require "./ast"
 
@@ -86,7 +87,7 @@ module Sheety
 
     # Generate Crystal source code for all tasks
     # This can be written to a file and compiled
-    def generate_source(initial_values : Hash(String, Float64 | String | Bool) = Hash(String, Float64 | String | Bool).new, interactive : Bool = false, source_file : String? = nil, intermediate_file : String? = nil) : String
+    def generate_source(initial_values : Hash(String, BigFloat | String | Bool) = Hash(String, BigFloat | String | Bool).new, interactive : Bool = false, source_file : String? = nil, intermediate_file : String? = nil) : String
       if interactive
         # For interactive mode, require termisu instead of tablo
         source = %{
@@ -161,7 +162,7 @@ module Sheety
     end
 
     # Generate code to set initial values
-    private def generate_setup_code(initial_values : Hash(String, Float64 | String | Bool)) : String
+    private def generate_setup_code(initial_values : Hash(String, BigFloat | String | Bool)) : String
       # Collect all unique ranges from formulas
       ranges = Set(NamedTuple(sheet: String, start_col: String, start_row: Int32, end_col: String, end_row: Int32)).new
 
@@ -180,8 +181,8 @@ module Sheety
         # Find range references directly in the calc code
         calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
         if calc_code.includes?("fetch_cell_range(")
-          # Extract the range parameters
-          if match = calc_code.match(/fetch_cell_range\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/)
+          # Extract all range parameters (not just the first one)
+          calc_code.scan(/fetch_cell_range\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/) do |match|
             ranges << {
               sheet: match[1],
               start_col: match[2],
@@ -199,7 +200,7 @@ module Sheety
       # Add user-provided values
       initial_values.each do |key, value|
         value_str = case value
-                    when Float64 then value.to_s
+                    when BigFloat then value.to_s
                     when String  then value
                     when Bool    then value.to_s
                     else              ""
@@ -230,7 +231,7 @@ initialize_cells(#{all_cells.inspect})
     end
 
     # Generate code to execute tasks and print results
-    private def generate_execution_code(initial_values : Hash(String, Float64 | String | Bool)) : String
+    private def generate_execution_code(initial_values : Hash(String, BigFloat | String | Bool)) : String
       # Group cells by sheet and organize in grid
       sheets_data = {} of String => Hash(String, Hash(String, String))
 
@@ -394,13 +395,14 @@ puts ""
       # Generate the calculation code
       calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
 
-      # Build the inputs array - use helper if the formula uses a range
-      has_range = calc_code.includes?("fetch_cell_range(")
+      # Build the inputs array - use helpers if the formula uses ranges
+      # Find all fetch_cell_range calls
+      range_matches = calc_code.scan(/fetch_cell_range\(([^)]+)\)/).map(&.[1])
 
-      inputs_code = if has_range && dependencies.size > 1
-                      # Extract the range from the calc_code
-                      # This is a simple approach - we could make it more sophisticated
-                      "range_inputs(#{calc_code.match!(/fetch_cell_range\(([^)]+)\)/)[1]})"
+      inputs_code = if !range_matches.empty?
+                      # Multiple ranges - combine them with + operator
+                      range_inputs_calls = range_matches.map { |range_params| "range_inputs(#{range_params})" }
+                      range_inputs_calls.join(" + ")
                     else
                       "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "]"
                     end
@@ -423,7 +425,7 @@ puts ""
     end
 
     # Generate TUI mode
-    private def generate_tui_mode(initial_values : Hash(String, Float64 | String | Bool), source_file : String?, intermediate_file : String?) : String
+    private def generate_tui_mode(initial_values : Hash(String, BigFloat | String | Bool), source_file : String?, intermediate_file : String?) : String
       # Get the sheet data collection code
       sheets_data = {} of String => Hash(String, Hash(String, String))
 

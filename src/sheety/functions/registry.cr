@@ -1,7 +1,33 @@
+require "big"
+
 module Sheety
   module Functions
     # Type alias for Excel cell values
-    alias CellValue = Float64 | String | Bool | ErrorValue | Nil
+    # Using BigFloat for arbitrary precision arithmetic
+    alias CellValue = BigFloat | String | Bool | ErrorValue | Nil
+
+    # Default precision for BigFloat operations (enough for most Excel use cases)
+    DEFAULT_PRECISION = 64
+
+    # Helper to convert to BigFloat with default precision
+    private def self.to_big_float(value : CellValue, precision : Int = DEFAULT_PRECISION) : BigFloat?
+      case value
+      when BigFloat
+        value
+      when Int, Int32
+        BigFloat.new(value.to_f, precision: precision)
+      when String
+        begin
+          BigFloat.new(value, precision: precision)
+        rescue
+          nil
+        end
+      when Bool
+        value ? BigFloat.new(1.0, precision: precision) : BigFloat.new(0.0, precision: precision)
+      else
+        nil
+      end
+    end
 
     # Helper methods for date operations
     private struct TimeHelpers
@@ -98,16 +124,16 @@ module Sheety
     end
 
     # Helper to extract numeric values from cell values, ignoring errors and non-numeric values
-    private def self.extract_numbers(values : Array(CellValue)) : Array(Float64)
-      result = [] of Float64
+    private def self.extract_numbers(values : Array(CellValue)) : Array(BigFloat)
+      result = [] of BigFloat
       values.each do |v|
         case v
-        when Float64
+        when BigFloat
           result << v
         when String
           # Try to convert string to number
           begin
-            result << v.to_f
+            result << BigFloat.new(v, precision: DEFAULT_PRECISION)
           rescue
             # Skip non-numeric strings
           end
@@ -125,7 +151,7 @@ module Sheety
     def self.to_string(value : CellValue) : String
       case value
       when String     then value
-      when Float64    then value.to_s
+      when BigFloat   then value.to_s
       when Bool       then value ? "TRUE" : "FALSE"
       when ErrorValue then value.to_s
       when Nil        then ""
@@ -134,51 +160,210 @@ module Sheety
       end
     end
 
-    # Helper to convert cell value to float
-    def self.to_float(value : CellValue) : Float64?
+    # Helper to convert cell value to BigFloat
+    def self.to_float(value : CellValue) : BigFloat?
       case value
-      when Float64 then value
+      when BigFloat
+        value
       when String
         begin
-          value.to_f
+          BigFloat.new(value, precision: DEFAULT_PRECISION)
         rescue
           nil
         end
-      when Bool then value ? 1.0 : 0.0
-      else           nil
+      when Bool
+        value ? BigFloat.new(1.0, precision: DEFAULT_PRECISION) : BigFloat.new(0.0, precision: DEFAULT_PRECISION)
+      else
+        nil
       end
     end
 
     # Math functions
 
-    # SUM: Adds all numbers in a range
+    # SUM: Adds all numbers - generic version that handles mixed types
+    private def self.sum_impl(*args : CellValue | Array(CellValue)) : BigFloat
+      all_numbers = Array(BigFloat).new
+      args.each do |arg|
+        case arg
+        when Array
+          all_numbers.concat(extract_numbers(arg))
+        else
+          if num = to_float(arg)
+            all_numbers << num
+          end
+        end
+      end
+      all_numbers.sum
+    end
+
+    # SUM: Multiple arguments (arrays and/or scalars mixed)
+    def self.sum(*values : CellValue | Array(CellValue)) : CellValue
+      sum_impl(*values)
+    end
+
+    # SUM: Multiple arrays only
+    def self.sum(*values : Array(CellValue)) : CellValue
+      all_numbers = Array(BigFloat).new
+      values.each do |arr|
+        all_numbers.concat(extract_numbers(arr))
+      end
+      all_numbers.sum
+    end
+
+    # SUM: Single array overload for backward compatibility
     def self.sum(values : Array(CellValue)) : CellValue
       numbers = extract_numbers(values)
       numbers.sum
     end
 
-    # AVERAGE: Returns the arithmetic mean of arguments
+    # AVERAGE: Generic version that handles mixed types
+    private def self.average_impl(*args : CellValue | Array(CellValue)) : CellValue
+      all_numbers = Array(BigFloat).new
+      args.each do |arg|
+        case arg
+        when Array
+          all_numbers.concat(extract_numbers(arg))
+        else
+          if num = to_float(arg)
+            all_numbers << num
+          end
+        end
+      end
+      return div0 if all_numbers.empty?
+      all_numbers.sum / all_numbers.size
+    end
+
+    # AVERAGE: Multiple arguments (arrays and/or scalars mixed)
+    def self.average(*values : CellValue | Array(CellValue)) : CellValue
+      average_impl(*values)
+    end
+
+    # AVERAGE: Multiple arrays only
+    def self.average(*values : Array(CellValue)) : CellValue
+      all_numbers = Array(BigFloat).new
+      values.each do |arr|
+        all_numbers.concat(extract_numbers(arr))
+      end
+      return div0 if all_numbers.empty?
+      all_numbers.sum / all_numbers.size
+    end
+
+    # AVERAGE: Single array overload for backward compatibility
     def self.average(values : Array(CellValue)) : CellValue
       numbers = extract_numbers(values)
       return div0 if numbers.empty?
       numbers.sum / numbers.size
     end
 
-    # MIN: Returns the minimum value in a range
+    # MIN: Generic version that handles mixed types
+    private def self.min_impl(*args : CellValue | Array(CellValue)) : CellValue
+      all_numbers = Array(BigFloat).new
+      args.each do |arg|
+        case arg
+        when Array
+          all_numbers.concat(extract_numbers(arg))
+        else
+          if num = to_float(arg)
+            all_numbers << num
+          end
+        end
+      end
+      return num if all_numbers.empty?
+      all_numbers.min
+    end
+
+    # MIN: Multiple arguments (arrays and/or scalars mixed)
+    def self.min(*values : CellValue | Array(CellValue)) : CellValue
+      min_impl(*values)
+    end
+
+    # MIN: Multiple arrays only
+    def self.min(*values : Array(CellValue)) : CellValue
+      all_numbers = Array(BigFloat).new
+      values.each do |arr|
+        all_numbers.concat(extract_numbers(arr))
+      end
+      return num if all_numbers.empty?
+      all_numbers.min
+    end
+
+    # MIN: Single array overload for backward compatibility
     def self.min(values : Array(CellValue)) : CellValue
       numbers = extract_numbers(values)
       return num if numbers.empty?
       numbers.min
     end
 
-    # MAX: Returns the maximum value in a range
+    # MAX: Generic version that handles mixed types
+    private def self.max_impl(*args : CellValue | Array(CellValue)) : CellValue
+      all_numbers = Array(BigFloat).new
+      args.each do |arg|
+        case arg
+        when Array
+          all_numbers.concat(extract_numbers(arg))
+        else
+          if num = to_float(arg)
+            all_numbers << num
+          end
+        end
+      end
+      return num if all_numbers.empty?
+      all_numbers.max
+    end
+
+    # MAX: Multiple arguments (arrays and/or scalars mixed)
+    def self.max(*values : CellValue | Array(CellValue)) : CellValue
+      max_impl(*values)
+    end
+
+    # MAX: Multiple arrays only
+    def self.max(*values : Array(CellValue)) : CellValue
+      all_numbers = Array(BigFloat).new
+      values.each do |arr|
+        all_numbers.concat(extract_numbers(arr))
+      end
+      return num if all_numbers.empty?
+      all_numbers.max
+    end
+
+    # MAX: Single array overload for backward compatibility
     def self.max(values : Array(CellValue)) : CellValue
       numbers = extract_numbers(values)
       return num if numbers.empty?
       numbers.max
     end
 
-    # COUNT: Counts how many numbers are in the list of arguments
+    # COUNT: Generic version that handles mixed types
+    private def self.count_impl(*args : CellValue | Array(CellValue)) : BigFloat
+      count = 0
+      args.each do |arg|
+        case arg
+        when Array
+          count += extract_numbers(arg).size
+        else
+          if to_float(arg)
+            count += 1
+          end
+        end
+      end
+      count.to_f
+    end
+
+    # COUNT: Multiple arguments (arrays and/or scalars mixed)
+    def self.count(*values : CellValue | Array(CellValue)) : CellValue
+      count_impl(*values)
+    end
+
+    # COUNT: Multiple arrays only
+    def self.count(*values : Array(CellValue)) : CellValue
+      count = 0
+      values.each do |arr|
+        count += extract_numbers(arr).size
+      end
+      count.to_f
+    end
+
+    # COUNT: Single array overload for backward compatibility
     def self.count(values : Array(CellValue)) : CellValue
       extract_numbers(values).size.to_f
     end
@@ -243,7 +428,7 @@ module Sheety
     private def self.to_bool(value : CellValue) : Bool?
       case value
       when Bool    then value
-      when Float64 then value != 0.0
+      when BigFloat then value != BigFloat.new(0.0, precision: DEFAULT_PRECISION)
       when String  then !value.empty?
       else              nil
       end
@@ -255,7 +440,7 @@ module Sheety
       values.all? do |v|
         case v
         when Bool    then v
-        when Float64 then v != 0.0
+        when BigFloat then v != BigFloat.new(0.0, precision: DEFAULT_PRECISION)
         when String  then !v.empty?
         else              false
         end
@@ -268,7 +453,7 @@ module Sheety
       values.any? do |v|
         case v
         when Bool    then v
-        when Float64 then v != 0.0
+        when BigFloat then v != BigFloat.new(0.0, precision: DEFAULT_PRECISION)
         when String  then !v.empty?
         else              false
         end
@@ -284,7 +469,12 @@ module Sheety
 
     # Text functions
 
-    # CONCAT: Joins several text strings into one text string
+    # CONCAT: Joins several text strings into one text string (supports multiple arrays)
+    def self.concat(*values : Array(CellValue)) : CellValue
+      values.map { |arr| arr.map { |v| to_string(v) } }.flatten.join
+    end
+
+    # CONCAT: Single array overload for backward compatibility
     def self.concat(values : Array(CellValue)) : CellValue
       values.map { |v| to_string(v) }.join
     end
@@ -380,11 +570,11 @@ module Sheety
       return 0 if left.is_a?(ErrorValue) || right.is_a?(ErrorValue)
 
       case {left, right}
-      when {Float64, Float64}
+      when {BigFloat, BigFloat}
         left <=> right
-      when {Float64, String}
+      when {BigFloat, String}
         -1 # Numbers are always less than strings in Excel
-      when {String, Float64}
+      when {String, BigFloat}
         1
       when {String, String}
         left <=> right
@@ -844,7 +1034,7 @@ module Sheety
         crit_value = $2
 
         case value
-        when Float64, String
+        when BigFloat, String
           # Try to convert both to numbers for comparison
           val_num = to_float(value)
           crit_num = to_float(crit_value)

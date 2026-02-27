@@ -1,3 +1,4 @@
+require "big"
 require "../token"
 require "../errors"
 
@@ -37,15 +38,15 @@ module Sheety
 
       def process(match : Regex::MatchData) : Nil
         super
-        # Convert string to numeric value
+        # Convert string to numeric value using BigFloat
         value_str = name
-        @attr["value"] = value_str.to_f
+        @attr["value"] = BigFloat.new(value_str)
         @attr["expr"] = value_str
         @attr["is_boolean"] = false
       end
 
-      def compile : Float64 | String
-        @attr["value"].as(Float64)
+      def compile : BigFloat | String
+        @attr["value"].as(BigFloat)
       end
 
       def boolean? : Bool
@@ -68,14 +69,14 @@ module Sheety
       def process(match : Regex::MatchData) : Nil
         super
         value_str = name.upcase
-        @attr["value"] = (value_str == "TRUE") ? 1.0 : 0.0
+        @attr["value"] = (value_str == "TRUE") ? BigFloat.new(1.0, precision: 64) : BigFloat.new(0.0, precision: 64)
         @attr["expr"] = value_str
         @attr["is_boolean"] = true
         @attr["bool_value"] = (value_str == "TRUE")
       end
 
-      def compile : Float64 | String
-        @attr["value"].as(Float64)
+      def compile : BigFloat | String
+        @attr["value"].as(BigFloat)
       end
 
       def boolean? : Bool
@@ -107,7 +108,7 @@ module Sheety
         @attr["value"] = name.gsub("\"\"", "\"")
       end
 
-      def compile : Float64 | String
+      def compile : BigFloat | String
         @attr["value"].as(String)
       end
     end
@@ -284,8 +285,8 @@ module Sheety
 
     # Empty operand for missing function arguments
     class EmptyOperand < Operand
-      def initialize(@source : String = "", @context : Hash(String, Float64 | String)? = nil)
-        @attr = Hash(String, String | Bool | Float64 | Int32).new
+      def initialize(@source : String = "", @context : Hash(String, BigFloat | String)? = nil)
+        @attr = Hash(String, String | Bool | BigFloat | Int32).new
         @attr["name"] = ""
         @attr["expr"] = ""
         @end_match = 0
@@ -295,7 +296,7 @@ module Sheety
         nil # Never matches - only created programmatically
       end
 
-      def compile : Float64 | String
+      def compile : BigFloat | String
         0.0
       end
 

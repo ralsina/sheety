@@ -1,10 +1,11 @@
+require "big"
 require "yaml"
 
 module Sheety
   # YAML parsing utilities
   module YAMLParser
     # Process YAML data and add to generator
-    def self.process_yaml_data(data : YAML::Any, generator : CroupierGenerator, initial_values : Hash(String, Float64 | String | Bool)) : Nil
+    def self.process_yaml_data(data : YAML::Any, generator : CroupierGenerator, initial_values : Hash(String, BigFloat | String | Bool)) : Nil
       data.as_h.each do |sheet_name, sheet_data|
         # Skip UI metadata
         next if sheet_name.as_s == "_ui_state"
@@ -40,7 +41,7 @@ module Sheety
         end
       when Int32, Int64
         raw.to_f
-      when Float64
+      when BigFloat
         raw
       when Bool
         raw

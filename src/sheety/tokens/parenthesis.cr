@@ -152,7 +152,7 @@ module Sheety
         end
       end
 
-      def compile : Float64 | String
+      def compile : BigFloat | String
         raise FormulaError.new("Parenthesis cannot be compiled directly")
       end
     end

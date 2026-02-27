@@ -1,3 +1,4 @@
+require "big"
 module Sheety
   # Generates Crystal code from Excel formula AST
   #
@@ -11,10 +12,10 @@ module Sheety
     # Context for code generation - tracks sheet name and available cells
     class Context
       property sheet : String?
-      property cells : Hash(String, Float64 | String | Bool)
+      property cells : Hash(String, BigFloat | String | Bool)
 
       def initialize(@sheet : String? = nil)
-        @cells = Hash(String, Float64 | String | Bool).new
+        @cells = Hash(String, BigFloat | String | Bool).new
       end
     end
 

@@ -1,3 +1,4 @@
+require "big"
 require "yaml"
 require "uuid"
 require "./importers/excel_importer"
@@ -9,7 +10,7 @@ module Sheety
   # Spreadsheet data structures and converters
   module Spreadsheet
     # Cell data structure
-    alias CellValue = String | Float64 | Bool | Nil
+    alias CellValue = String | BigFloat | Bool | Nil
     alias CellData = Hash(String, CellValue)     # "formula" => "...", "value" => ...
     alias SheetData = Hash(String, CellData)     # "A1" => {...}, "B1" => {...}
     alias WorkbookData = Hash(String, SheetData) # "Sheet1" => {...}, "Sheet2" => {...}
@@ -188,7 +189,7 @@ module Sheety
               else
                 lines << "    #{key}: #{value.inspect}"
               end
-            when Float64
+            when BigFloat
               if value == value.to_i
                 lines << "    #{key}: #{value.to_i}"
               else
@@ -243,7 +244,7 @@ module Sheety
         value.to_s
       when Nil
         nil
-      when String, Float64, Bool
+      when String, BigFloat, Bool
         value
       else
         value.to_s
@@ -287,9 +288,9 @@ module Sheety
           raw
         end
       when Int32, Int64
-        raw.to_f
-      when Float64
-        raw
+        BigFloat.new(raw.to_f, precision: 64)
+      when BigFloat
+        BigFloat.new(raw, precision: 64)
       when Bool
         raw
       else
@@ -300,7 +301,7 @@ module Sheety
     # Write Crystal source code format
     private def self.write_crystal_source(data : WorkbookData, file_path : String, source_file : String?) : Nil
       generator = CroupierGenerator.new
-      initial_values = Hash(String, Float64 | String | Bool).new
+      initial_values = Hash(String, BigFloat | String | Bool).new
 
       # Convert data to Croupier format
       data.each do |sheet_name, sheet_data|
@@ -316,7 +317,9 @@ module Sheety
             next if value.nil?
             # Convert to appropriate type
             case value
-            when String, Float64, Bool
+            when String, Bool
+              initial_values[key] = value
+            when BigFloat
               initial_values[key] = value
             else
               initial_values[key] = value.to_s
@@ -347,7 +350,7 @@ module Sheety
     # Write compiled binary format
     private def self.write_binary(data : WorkbookData, file_path : String, source_file : String?) : Nil
       generator = CroupierGenerator.new
-      initial_values = Hash(String, Float64 | String | Bool).new
+      initial_values = Hash(String, BigFloat | String | Bool).new
 
       # Convert data to Croupier format
       data.each do |sheet_name, sheet_data|
@@ -363,7 +366,9 @@ module Sheety
             next if value.nil?
             # Convert to appropriate type
             case value
-            when String, Float64, Bool
+            when String, Bool
+              initial_values[key] = value
+            when BigFloat
               initial_values[key] = value
             else
               initial_values[key] = value.to_s

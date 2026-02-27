@@ -1,3 +1,4 @@
+require "big"
 require "termisu"
 require "yaml"
 require "./importers/excel_exporter"
@@ -921,7 +922,7 @@ module Sheety
 
         # First, generate Crystal source code
         generator = CroupierGenerator.new
-        initial_values = Hash(String, Float64 | String | Bool).new
+        initial_values = Hash(String, BigFloat | String | Bool).new
 
         # Populate formulas and initial values from internal_format
         # This is the single source of truth for all cell data
@@ -978,7 +979,7 @@ module Sheety
       elsif ext == ".cr"
         # Generate Crystal source code
         generator = CroupierGenerator.new
-        initial_values = Hash(String, Float64 | String | Bool).new
+        initial_values = Hash(String, BigFloat | String | Bool).new
 
         # Populate formulas and initial values from internal_format
         internal_format.each do |sheet, cells|
@@ -1062,9 +1063,9 @@ module Sheety
       yaml_any_structure
     end
 
-    private def convert_cell_value_to_yaml(value : Sheety::Functions::CellValue) : String | Float64 | Bool | Nil
+    private def convert_cell_value_to_yaml(value : Sheety::Functions::CellValue) : String | BigFloat | Bool | Nil
       case value
-      when String, Float64, Bool, Nil
+      when String, BigFloat, Bool, Nil
         value
       when Sheety::Functions::ErrorValue
         value.to_s

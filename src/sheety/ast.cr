@@ -1,11 +1,13 @@
+require "big"
+
 module Sheety
   module AST
     # Base class for all AST nodes
     abstract class Node
-      property attr : Hash(String, String | Bool | Float64 | Int32)
+      property attr : Hash(String, String | Bool | BigFloat | Int32)
 
       def initialize
-        @attr = Hash(String, String | Bool | Float64 | Int32).new
+        @attr = Hash(String, String | Bool | BigFloat | Int32).new
       end
 
       # Get the expression string for this node
@@ -16,9 +18,9 @@ module Sheety
 
     # Number literal node
     class Number < Node
-      property value : Float64
+      property value : BigFloat
 
-      def initialize(@value : Float64)
+      def initialize(@value : BigFloat)
         super()
         @attr["value"] = @value
         @attr["expr"] = format_number(@value)
@@ -28,10 +30,11 @@ module Sheety
         format_number(@value)
       end
 
-      private def format_number(value : Float64) : String
-        # Check if value is a whole number without overflow
-        if value >= Int64::MIN.to_f && value < Int64::MAX.to_f && value == value.to_i64
-          value.to_i64.to_s
+      private def format_number(value : BigFloat) : String
+        # Check if value is a whole number
+        int_val = value.to_i
+        if BigFloat.new(int_val.to_f, precision: 64) == value
+          int_val.to_s
         else
           value.to_s
         end
@@ -59,7 +62,7 @@ module Sheety
 
       def initialize(@value : Bool)
         super()
-        @attr["value"] = @value ? 1.0 : 0.0
+        @attr["value"] = @value ? BigFloat.new(1.0, precision: 64) : BigFloat.new(0.0, precision: 64)
         @attr["expr"] = @value.to_s.upcase
       end
 

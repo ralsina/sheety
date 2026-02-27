@@ -1,3 +1,4 @@
+require "big"
 require "compress/zip"
 require "xml"
 
@@ -325,7 +326,7 @@ module Sheety
       case value
       when String
         value
-      when Float64
+      when BigFloat
         if value == value.to_i
           value.to_i.to_s
         else

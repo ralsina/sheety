@@ -1,3 +1,4 @@
+require "big"
 require "./errors"
 require "./ast_builder"
 require "./tokens/operand"
@@ -14,9 +15,9 @@ module Sheety
     # Regex to check if a string is a valid formula
     FORMULA_CHECK = /^\s*=\s*(?P<name>.+)|^\s*{\s*=\s*(?P<name>.+)\s*}/i
 
-    property context : Hash(String, Float64 | String)?
+    property context : Hash(String, BigFloat | String)?
 
-    def initialize(@context : Hash(String, Float64 | String)? = nil)
+    def initialize(@context : Hash(String, BigFloat | String)? = nil)
     end
 
     # Parse a formula string and return (tokens, ast_builder)

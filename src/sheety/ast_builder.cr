@@ -72,7 +72,7 @@ module Sheety
     private def operand_to_ast_node(token : Tokens::Operand) : AST::Node
       case token
       when Tokens::Number
-        value = token.compile.as(Float64)
+        value = token.compile.as(BigFloat)
         AST::Number.new(value)
       when Tokens::Boolean
         value = token.bool_value
@@ -116,7 +116,7 @@ module Sheety
             # If parsing fails, create a placeholder
             # Check if it's a number
             if elem_str =~ /^-?\d+(\.\d+)?$/
-              elements << AST::Number.new(elem_str.to_f)
+              elements << AST::Number.new(BigFloat.new(elem_str))
             elsif elem_str =~ /^".*"$/
               # String
               str_value = elem_str[1..-2]? || elem_str

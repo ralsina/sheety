@@ -1,14 +1,15 @@
+require "big"
 require "./token"
 
 module Sheety
   # Base class for all tokens in the formula parser
   abstract class Token
-    property attr : Hash(String, String | Bool | Float64 | Int32)
+    property attr : Hash(String, String | Bool | BigFloat | Int32)
     property source : String
     property end_match : Int32
 
-    def initialize(@source : String, @context : Hash(String, Float64 | String)? = nil)
-      @attr = Hash(String, String | Bool | Float64 | Int32).new
+    def initialize(@source : String, @context : Hash(String, BigFloat | String)? = nil)
+      @attr = Hash(String, String | Bool | BigFloat | Int32).new
       @end_match = 0
 
       match_result = match(@source)
@@ -48,7 +49,7 @@ module Sheety
     end
 
     # Compile the token to executable code
-    def compile : (Array(Float64 | String) -> Float64 | String) | Float64 | String
+    def compile : (Array(BigFloat | String) -> BigFloat | String) | BigFloat | String
       raise FormulaError.new("Compile not implemented for #{self.class}")
     end
   end

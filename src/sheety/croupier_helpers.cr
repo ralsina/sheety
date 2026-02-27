@@ -1,3 +1,4 @@
+require "big"
 module Sheety
   # Helper functions for generated spreadsheet binaries
   #
@@ -80,7 +81,7 @@ module Sheety
     # Convert task result to string for k/v store output
     def format_result(result) : String
       case result
-      when Float64
+      when BigFloat
         if result == result.to_i
           result.to_i.to_s
         else

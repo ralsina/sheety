@@ -1,3 +1,4 @@
+require "big"
 require "yaml"
 require "openssl"
 require "uuid"
@@ -89,7 +90,7 @@ module Sheety
       generator.set_kv_store_path(kv_store)
       generator.set_spreadsheet_uuid(spreadsheet_uuid)
       generator.set_original_filename(filename)
-      initial_values = Hash(String, Float64 | String | Bool).new
+      initial_values = Hash(String, BigFloat | String | Bool).new
 
       # Load YAML file and process
       yaml_content = File.read(intermediate_file)
@@ -176,7 +177,7 @@ module Sheety
       uuid
     end
 
-    private def process_yaml_data(data : YAML::Any, generator : CroupierGenerator, initial_values : Hash(String, Float64 | String | Bool))
+    private def process_yaml_data(data : YAML::Any, generator : CroupierGenerator, initial_values : Hash(String, BigFloat | String | Bool))
       data.as_h.each do |sheet_name, sheet_data|
         # Skip UI metadata
         next if sheet_name.as_s == "_ui_state"
@@ -211,7 +212,7 @@ module Sheety
         end
       when Int32, Int64
         raw.to_f
-      when Float64
+      when BigFloat
         raw
       when Bool
         raw

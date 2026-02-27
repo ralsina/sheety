@@ -1,3 +1,4 @@
+require "big"
 require "yaml"
 require "./croupier_generator"
 require "./spreadsheet"
@@ -103,7 +104,7 @@ module Sheety
       generator.set_state_file_path(croupier_state)
       generator.set_kv_store_path(kv_store)
       generator.set_spreadsheet_uuid(spreadsheet_uuid)
-      initial_values = Hash(String, Float64 | String | Bool).new
+      initial_values = Hash(String, BigFloat | String | Bool).new
 
       # Convert data to Croupier format
       data.each do |sheet_name, sheet_data|
@@ -119,7 +120,7 @@ module Sheety
             next if value.nil?
             # Convert to appropriate type
             case value
-            when String, Float64, Bool
+            when String, BigFloat, Bool
               initial_values[key] = value
             else
               initial_values[key] = value.to_s

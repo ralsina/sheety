@@ -1,3 +1,4 @@
+require "big"
 require "xlsx-parser"
 require "./excel_types"
 require "./formula_extractor"
@@ -120,9 +121,9 @@ module Sheety
     private def self.convert_value(value) : Functions::CellValue
       case value
       when Int32, Int64
-        value.to_f
-      when Float64
-        value
+        BigFloat.new(value.to_f, precision: Functions::DEFAULT_PRECISION)
+      when BigFloat
+        BigFloat.new(value, precision: Functions::DEFAULT_PRECISION)
       when String
         value
       when Bool
@@ -133,7 +134,7 @@ module Sheety
         epoch = Time.utc(1900, 1, 1)
         seconds = (value - epoch).total_seconds.to_i64
         days = (seconds // 86400).to_i
-        (days + 2).to_f # Excel's 1900 date system has a bug treating 1900 as leap year
+        BigFloat.new(days.to_f + 2.0, precision: Functions::DEFAULT_PRECISION) # Excel's 1900 date system has a bug treating 1900 as leap year
       when Nil
         nil
       else
