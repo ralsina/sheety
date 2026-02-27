@@ -16,5 +16,6 @@ Sheet1:
   A6:
     value: 10.0
 _ui_state:
+  spreadsheet_uuid: acfb0566-23b0-4d6c-a22a-b652bb117313
   active_sheet: Sheet1
   active_cell: C2

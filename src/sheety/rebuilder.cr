@@ -98,7 +98,8 @@ module Sheety
       process_yaml_data(data, generator, initial_values)
 
       # Generate Croupier task source code with initial values (non-interactive for rebuild)
-      source_code = generator.generate_source(initial_values, true, filename, intermediate_file)
+      # Use intermediate_file as the source file so the TUI reads from the updated file
+      source_code = generator.generate_source(initial_values, true, intermediate_file, nil)
 
       if source_code.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
