@@ -389,26 +389,7 @@ puts ""
         ) do
           begin
             result = (#{calc_code})
-
-            # Convert result to string - this is what the task "outputs"
-            case result
-            when Float64
-              if result == result.to_i
-                result.to_i.to_s
-              else
-                result.to_s
-              end
-            when String
-              result
-            when Bool
-              result.upcase.to_s
-            when Sheety::Functions::ErrorValue
-              result.to_s
-            when Nil
-              ""
-            else
-              result.to_s
-            end
+            format_result(result)
           rescue e : Exception
             "#ERROR: " + (e.message || "Unknown error")
           end
