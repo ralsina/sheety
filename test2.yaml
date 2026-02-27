@@ -1,0 +1,15 @@
+Sheet1:
+  C1:
+    formula: "=SUM(A1:A100)"
+  A1:
+    value: "2"
+  A2:
+    value: "2"
+  A3:
+    value: "3"
+  A4:
+    value: "4"
+  A5:
+    value: "5"
+  A6:
+    value: "10"

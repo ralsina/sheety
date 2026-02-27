@@ -58,12 +58,12 @@ module Sheety
           if cell.formula
             # Store formula as string (Sheety will parse it)
             cell_data["formula"] = cell.formula
-          elsif cell.value
-            # Store the value directly
+            sheet_data[cell.reference] = cell_data
+          elsif !cell.value.nil?
+            # Store the value directly (including false, 0, empty string, etc.)
             cell_data["value"] = cell.value
+            sheet_data[cell.reference] = cell_data
           end
-
-          sheet_data[cell.reference] = cell_data
         end
 
         result[sheet.name] = sheet_data
@@ -94,7 +94,7 @@ module Sheety
     # Merge values and formulas into ExcelCell objects
     private def self.merge_values_and_formulas(
       values : Hash(String, Functions::CellValue),
-      formulas : Hash(String, String)
+      formulas : Hash(String, String),
     ) : Array(Importers::ExcelCell)
       cells = Array(Importers::ExcelCell).new
       processed_refs = Set(String).new

@@ -26,6 +26,7 @@ module Sheety
     @state_file_path : String?
     @kv_store_path : String?
     @spreadsheet_uuid : String?
+    @original_filename : String?
 
     def initialize
       @formulas = Hash(String, FormulaInfo).new
@@ -34,6 +35,13 @@ module Sheety
       @state_file_path = nil
       @kv_store_path = nil
       @spreadsheet_uuid = nil
+      @original_filename = nil
+    end
+
+    # Set the original filename (for save functionality)
+    def set_original_filename(filename : String) : self
+      @original_filename = filename
+      self
     end
 
     # Set the path for the .croupier state file
@@ -143,7 +151,7 @@ module Sheety
 
     # Generate Crystal source code for all tasks
     # This can be written to a file and compiled
-    def generate_source(initial_values : Hash(String, Float64 | String | Bool) = Hash(String, Float64 | String | Bool).new, interactive : Bool = false, source_file : String? = nil) : String
+    def generate_source(initial_values : Hash(String, Float64 | String | Bool) = Hash(String, Float64 | String | Bool).new, interactive : Bool = false, source_file : String? = nil, intermediate_file : String? = nil) : String
       if interactive
         # For interactive mode, require termisu instead of tablo
         source = %{
@@ -207,7 +215,7 @@ module Sheety
 
       # Finally, run the tasks and print results
       if interactive
-        source += generate_tui_mode(initial_values, source_file)
+        source += generate_tui_mode(initial_values, source_file, intermediate_file)
       else
         source += generate_execution_code(initial_values)
       end
@@ -462,7 +470,7 @@ puts ""
     end
 
     # Generate TUI mode
-    private def generate_tui_mode(initial_values : Hash(String, Float64 | String | Bool), source_file : String?) : String
+    private def generate_tui_mode(initial_values : Hash(String, Float64 | String | Bool), source_file : String?, intermediate_file : String?) : String
       # Get the sheet data collection code
       sheets_data = {} of String => Hash(String, Hash(String, String))
 
@@ -538,6 +546,12 @@ end
 
 # Set source file for save functionality
 #{source_file ? "tui.set_source_file(#{source_file.inspect})" : ""}
+
+# Set original source file for saves (persists across rebuilds)
+#{@original_filename ? "tui.set_original_source_file(#{@original_filename.inspect})" : (source_file ? "tui.set_original_source_file(#{source_file.inspect})" : "")}
+
+# Set intermediate file for auto-saves (formula edits)
+#{intermediate_file ? "tui.set_intermediate_file(#{intermediate_file.inspect})" : ""}
 
 # Set value getter callback to fetch fresh values from Croupier store
 tui.set_value_getter do |sheet, cell_ref|

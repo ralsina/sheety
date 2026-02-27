@@ -23,5 +23,7 @@ dependencies:
   xlsx-parser:
     github: d1ceward/xlsx-parser
     version: ~> 1.4
+  crystal_xlsx:
+    github: confact/crystal_xlsx
   baked_file_system:
     github: ralsina/baked_file_system

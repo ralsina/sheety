@@ -1,9 +1,12 @@
 require "yaml"
 require "./croupier_generator"
-require "./importers/excel_importer"
+require "./spreadsheet"
+require "./yaml_parser"
+require "./builder"
 require "./data_dir"
 require "openssl"
 require "uuid"
+require "./importers/excel_importer"
 
 module Sheety
   class CLI
@@ -19,57 +22,6 @@ module Sheety
     # Get or create a persistent UUID for the spreadsheet
     # The UUID is stored in the YAML file's _ui_state section
     # and persists across rebuilds as long as the file exists
-    private def self.get_or_create_spreadsheet_uuid(filename : String) : String
-      uuid = nil
-
-      # Try to read existing UUID from YAML
-      begin
-        yaml_content = File.read(filename)
-        data = YAML.parse(yaml_content)
-
-        if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
-          uuid = data["_ui_state"]["spreadsheet_uuid"].as_s
-        end
-      rescue
-        # If parsing fails, we'll create a new UUID
-      end
-
-      # If no UUID exists, create one and add it to the YAML
-      unless uuid
-        uuid = UUID.random.to_s
-
-        # Read the current YAML content
-        yaml_content = File.read(filename)
-
-        # Check if _ui_state section exists and if it has spreadsheet_uuid
-        if yaml_content.includes?("_ui_state:")
-          if yaml_content.includes?("spreadsheet_uuid:")
-            # Already has spreadsheet_uuid, don't add it again
-            # Try to extract it
-            yaml_content.each_line do |line|
-              if line.includes?("spreadsheet_uuid:")
-                match = line.match(/spreadsheet_uuid:\s*(\S+)/)
-                if match
-                  uuid = match[1]
-                  break
-                end
-              end
-            end
-          else
-            # Append the UUID to existing _ui_state section
-            yaml_content = yaml_content.gsub(/(_ui_state:)/, "\\1\n  spreadsheet_uuid: #{uuid}")
-            File.write(filename, yaml_content)
-          end
-        else
-          # Add _ui_state section at the end
-          yaml_content = yaml_content + "\n_ui_state:\n  spreadsheet_uuid: #{uuid}\n"
-          File.write(filename, yaml_content)
-        end
-      end
-
-      uuid
-    end
-
     def self.run(args : Array(String))
       # Ensure data directory exists on startup
       DataDir.ensure
@@ -85,11 +37,11 @@ module Sheety
       filename = args[0]
       extra_args = args[1..]? || Array(String).new
 
-      handle_compile(filename, extra_args)
+      handle_file(filename, extra_args)
     end
 
-    private def self.handle_compile(filename : String, extra_args : Array(String))
-      unless filename && !filename.empty?
+    private def self.handle_file(filename : String, extra_args : Array(String))
+      if !filename || filename.empty?
         STDERR.puts "Error: No input file specified"
         STDERR.puts "Usage: sheety <file.(yaml|xlsx)> [--no-interactive]"
         exit 1
@@ -100,28 +52,41 @@ module Sheety
         exit 1
       end
 
-      # For .xlsx files, convert to YAML and process as YAML
-      ext = File.extname(filename).downcase
+      # Check for flags
+      save_to = extra_args.find(&.starts_with?("--save-to="))
+      save_to = save_to.try(&.split('=').last) if save_to
+      interactive = !extra_args.includes?("--no-interactive")
 
-      if ext == ".xlsx"
-        puts "Converting Excel file to YAML format..."
-        yaml_filename = convert_excel_to_yaml(filename)
-        # Process the converted YAML file
-        handle_yaml_file(yaml_filename, extra_args)
+      # Handle --save-to flag for direct format conversion
+      if save_to
+        Spreadsheet.convert(filename, save_to)
         return
       end
 
-      # Handle YAML files
-      handle_yaml_file(filename, extra_args)
-    end
+      # For .xlsx files, convert to YAML first
+      ext = File.extname(filename).downcase
+      if ext == ".xlsx"
+        puts "Converting Excel file to YAML format..."
+        yaml_filename = File.join(DataDir.path, "#{File.basename(filename, ".xlsx")}.yaml")
+        Spreadsheet.convert(filename, yaml_filename)
+        filename = yaml_filename
+      end
 
-    private def self.handle_yaml_file(filename : String, extra_args : Array(String))
+      # Now process the YAML file (either original or converted)
+      # Get or create persistent UUID for this spreadsheet
       # Check for flags
-      compile_only = extra_args.includes?("--compile-only")
+      save_to = extra_args.find(&.starts_with?("--save-to="))
+      save_to = save_to.try(&.split('=').last) if save_to
       interactive = !extra_args.includes?("--no-interactive")
 
+      # Handle --save-to flag for direct format conversion
+      if save_to
+        Spreadsheet.convert(filename, save_to)
+        return
+      end
+
       # Get or create persistent UUID for this spreadsheet
-      spreadsheet_uuid = get_or_create_spreadsheet_uuid(filename)
+      spreadsheet_uuid = Spreadsheet.get_or_create_spreadsheet_uuid(filename)
 
       # Calculate hash of source file for caching (for binary naming)
       file_hash = calculate_file_hash(filename)
@@ -137,6 +102,14 @@ module Sheety
       croupier_state = File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.croupier")
       kv_store = File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.kv")
 
+      # Intermediate save file for auto-saves (uses UUID to avoid conflicts)
+      intermediate_file = File.join(DataDir.path, "#{spreadsheet_uuid}.yaml")
+
+      # Copy original file to intermediate file if it doesn't exist or is outdated
+      if !File.exists?(intermediate_file) || File.info(filename).modification_time > File.info(intermediate_file).modification_time
+        FileUtils.cp(filename, intermediate_file)
+      end
+
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
       generator.set_state_file_path(croupier_state)
@@ -144,13 +117,36 @@ module Sheety
       generator.set_spreadsheet_uuid(spreadsheet_uuid)
       initial_values = Hash(String, Float64 | String | Bool).new
 
-      # Load YAML file and process
-      yaml_content = File.read(filename)
+      # Load YAML file and process (use intermediate file if it exists and is newer)
+      yaml_source = if File.exists?(intermediate_file) && File.info(intermediate_file).modification_time >= File.info(filename).modification_time
+                      intermediate_file
+                    else
+                      filename
+                    end
+
+      yaml_content = File.read(yaml_source)
       data = YAML.parse(yaml_content)
-      process_yaml_data(data, generator, initial_values)
+      # Load YAML file and process
+      data.as_h.each do |sheet_name, sheet_data|
+        # Skip UI metadata
+        next if sheet_name.as_s == "_ui_state"
+
+        sheet_data.as_h.each do |cell_ref, cell_data|
+          cell_data = cell_data.as_h
+          key = "#{sheet_name}!#{cell_ref}"
+
+          if cell_data.has_key?("formula")
+            formula = cell_data["formula"].to_s
+            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
+          elsif cell_data.has_key?("value")
+            value = YAMLParser.parse_value(cell_data["value"])
+            initial_values[key] = value
+          end
+        end
+      end
 
       # Generate Croupier task source code with initial values
-      source_code = generator.generate_source(initial_values, interactive, filename)
+      source_code = generator.generate_source(initial_values, interactive, filename, intermediate_file)
 
       if source_code.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
@@ -182,11 +178,7 @@ module Sheety
 
       puts "Built successfully: #{binary_name}"
 
-      if compile_only
-        # Print binary path and exit
-        puts binary_name
-        exit 0
-      elsif interactive
+      if interactive
         puts "\nLaunching TUI..."
         puts "Press Q to exit\n"
 
@@ -203,119 +195,6 @@ module Sheety
       end
     end
 
-    private def self.parse_value(value : YAML::Any) : Functions::CellValue
-      raw = value.raw
-
-      case raw
-      when String
-        # Check if it's a boolean
-        if raw == "true"
-          true
-        elsif raw == "false"
-          false
-        else
-          raw
-        end
-      when Int32, Int64
-        raw.to_f
-      when Float64
-        raw
-      when Bool
-        raw
-      else
-        raw.to_s
-      end
-    end
-
-    # Process YAML data and add to generator
-    private def self.process_yaml_data(data : YAML::Any, generator : CroupierGenerator, initial_values : Hash(String, Float64 | String | Bool))
-      data.as_h.each do |sheet_name, sheet_data|
-        # Skip UI metadata
-        next if sheet_name.as_s == "_ui_state"
-
-        sheet_data.as_h.each do |cell_ref, cell_data|
-          cell_data = cell_data.as_h
-          key = "#{sheet_name}!#{cell_ref}"
-
-          if cell_data.has_key?("formula")
-            formula = cell_data["formula"].to_s
-            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
-          elsif cell_data.has_key?("value")
-            value = parse_value(cell_data["value"])
-            initial_values[key] = value
-          end
-        end
-      end
-    end
-
-    # Convert Excel file to YAML format and save to data directory
-    private def self.convert_excel_to_yaml(filename : String) : String
-      # Get the base filename and change extension to .yaml
-      basename = File.basename(filename, ".xlsx")
-      yaml_filename = File.join(DataDir.path, "#{basename}.yaml")
-
-      # If file already exists, append a number
-      if File.exists?(yaml_filename)
-        counter = 1
-        loop do
-          new_name = File.join(DataDir.path, "#{basename}_#{counter}.yaml")
-          break unless File.exists?(new_name)
-          counter += 1
-        end
-        yaml_filename = File.join(DataDir.path, "#{basename}_#{counter}.yaml")
-      end
-
-      # Parse Excel file and convert to internal format (Hash)
-      workbook = ExcelImporter.parse_xlsx(filename)
-      hash_data = ExcelImporter.to_internal_format(workbook)
-
-      # Convert Hash to YAML string manually to ensure proper format
-      yaml_string = hash_to_yaml_string(hash_data)
-
-      # Write YAML file
-      File.write(yaml_filename, yaml_string)
-      puts "Created YAML file: #{yaml_filename}"
-
-      yaml_filename
-    end
-
-    # Convert the internal hash format to a YAML string
-    private def self.hash_to_yaml_string(data : Hash(String, Hash(String, Hash(String, Functions::CellValue)))) : String
-      lines = [] of String
-
-      data.each do |sheet_name, sheet_data|
-        lines << "#{sheet_name}:"
-        sheet_data.each do |cell_ref, cell_data|
-          lines << "  #{cell_ref}:"
-          cell_data.each do |key, value|
-            case value
-            when String
-              # Add = prefix to formulas if missing
-              if key == "formula" && !value.starts_with?("=")
-                lines << "    #{key}: #{("=".to_s + value).inspect}"
-              else
-                lines << "    #{key}: #{value.inspect}"
-              end
-            when Float64
-              if value == value.to_i
-                lines << "    #{key}: #{value.to_i}"
-              else
-                lines << "    #{key}: #{value}"
-              end
-            when Bool
-              lines << "    #{key}: #{value}"
-            when Nil
-              # Skip nil values
-            else
-              lines << "    #{key}: #{value.inspect}"
-            end
-          end
-        end
-      end
-
-      lines.join("\n")
-    end
-
     private def self.print_help : Nil
       puts <<-HELP
         Usage: sheety <file.(yaml|xlsx)> [options]
@@ -323,13 +202,25 @@ module Sheety
         Compiles a spreadsheet to a standalone binary with interactive TUI.
 
         Options:
-          --compile-only      Build binary and print its path, then exit
+          --save-to=FILE      Convert and save to specified format (extension determines type)
           --no-interactive    Generate non-interactive binary (runs once and exits)
           -h, --help          Show this help message
+
+        Output formats (via --save-to):
+          .xlsx               Excel file
+          .yaml, .yml         YAML file
+          .cr                 Crystal source code
+          .sheety             Interactive binary with TUI
 
         Input formats:
           .xlsx               Excel 2007+ format (with formula support)
           .yaml, .yml         YAML format
+
+        Examples:
+          sheety data.yaml --save-to=data.xlsx              # Convert to Excel
+          sheety data.xlsx --save-to=data.yaml              # Convert to YAML
+          sheety data.yaml --save-to=data.sheety            # Compile to binary
+          sheety data.yaml --save-to=source.cr              # Generate source code
 
         YAML Format:
           SheetName:
