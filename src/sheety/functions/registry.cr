@@ -387,8 +387,16 @@ module Sheety
     def self.power(base : CellValue, exponent : CellValue) : CellValue
       b = to_float(base)
       e = to_float(exponent)
-      return value if b.nil? || e.nil?
-      b ** e
+      return base if b.nil?
+      return exponent if e.nil?
+
+      # For integer exponents, use BigFloat's ** operator
+      if e == e.to_i
+        b ** e.to_i
+      else
+        # For non-integer exponents, convert to Float and use Math.pow
+        BigFloat.new(Math.pow(b.to_f, e.to_f), precision: 64)
+      end
     end
 
     # SQRT: Returns the square root of a number
