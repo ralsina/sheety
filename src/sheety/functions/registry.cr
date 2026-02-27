@@ -395,7 +395,7 @@ module Sheety
         b ** e.to_i
       else
         # For non-integer exponents, convert to Float and use ** operator
-        BigFloat.new((b.to_f ** e.to_f).to_s, precision: 64)
+        BigFloat.new(b.to_f ** e.to_f, precision: 64)
       end
     end
 
