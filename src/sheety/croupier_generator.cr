@@ -403,8 +403,10 @@ puts ""
                       # Multiple ranges - combine them with + operator
                       range_inputs_calls = range_matches.map { |range_params| "range_inputs(#{range_params})" }
                       range_inputs_calls.join(" + ")
+                    elsif dependencies.empty?
+                      "[] of String"
                     else
-                      "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "]"
+                      "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "] of String"
                     end
 
       # Build the task - the proc should return the result as a string
