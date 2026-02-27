@@ -98,20 +98,6 @@ module Sheety
       uuid
     end
 
-    # Read a file and return the in-memory representation
-    def self.read(file_path : String) : WorkbookData
-      ext = File.extname(file_path).downcase
-
-      case ext
-      when ".yaml", ".yml"
-        read_yaml(file_path)
-      when ".xlsx"
-        read_excel(file_path)
-      else
-        raise "Unsupported input format: #{ext}"
-      end
-    end
-
     # Write the in-memory representation to a file
     def self.write(data : WorkbookData, file_path : String) : Nil
       ext = File.extname(file_path).downcase
