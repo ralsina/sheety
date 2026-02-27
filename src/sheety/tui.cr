@@ -661,8 +661,10 @@ module Sheety
       sheet_name = @sheets[@current_sheet_idx]
       cell_ref = current_cell_ref
 
-      # If editing a formula cell, we need to recompile
-      if formula_cell?
+      # Check if the edit buffer contains a formula (starts with =)
+      is_formula = @edit_buffer.starts_with?("=")
+
+      if is_formula
         # Ensure formula starts with = (add it if missing)
         unless @edit_buffer.starts_with?("=")
           @edit_buffer = "=" + @edit_buffer
