@@ -133,7 +133,7 @@ module Sheety
         when String
           # Try to convert string to number
           begin
-            result << BigFloat.new(v, precision: DEFAULT_PRECISION)
+            result << BigFloat.new(v)
           rescue
             # Skip non-numeric strings
           end
@@ -167,7 +167,7 @@ module Sheety
         value
       when String
         begin
-          BigFloat.new(value, precision: DEFAULT_PRECISION)
+          BigFloat.new(value)
         rescue
           nil
         end
