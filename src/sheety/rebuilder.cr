@@ -211,7 +211,7 @@ module Sheety
           raw
         end
       when Int32, Int64
-        raw.to_f
+        BigFloat.new(raw.to_f, precision: 64)
       when BigFloat
         raw
       when Bool

@@ -900,7 +900,7 @@ module Sheety
           # Try to parse as number, otherwise keep as string
           parsed = current_value.to_f?
           if parsed && current_value == parsed.to_s
-            cell_info["value"] = parsed
+            cell_info["value"] = BigFloat.new(parsed, precision: 64)
           else
             cell_info["value"] = current_value
           end
