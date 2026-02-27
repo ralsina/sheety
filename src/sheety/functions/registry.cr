@@ -394,8 +394,8 @@ module Sheety
       if e == e.to_i
         b ** e.to_i
       else
-        # For non-integer exponents, convert to Float and use Math.pow
-        BigFloat.new(Math.pow(b.to_f, e.to_f), precision: 64)
+        # For non-integer exponents, convert to Float and use ** operator
+        BigFloat.new((b.to_f ** e.to_f).to_s, precision: 64)
       end
     end
 
