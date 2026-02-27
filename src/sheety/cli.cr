@@ -43,7 +43,7 @@ module Sheety
     private def self.handle_file(filename : String, extra_args : Array(String))
       if !filename || filename.empty?
         STDERR.puts "Error: No input file specified"
-        STDERR.puts "Usage: sheety <file.(yaml|xlsx)> [--no-interactive]"
+        STDERR.puts "Usage: sheety <file.(yaml|xlsx)> [options]"
         exit 1
       end
 
@@ -55,7 +55,6 @@ module Sheety
       # Check for flags
       save_to = extra_args.find(&.starts_with?("--save-to="))
       save_to = save_to.try(&.split('=').last) if save_to
-      interactive = !extra_args.includes?("--no-interactive")
 
       # Handle --save-to flag for direct format conversion
       if save_to
@@ -73,18 +72,6 @@ module Sheety
       end
 
       # Now process the YAML file (either original or converted)
-      # Get or create persistent UUID for this spreadsheet
-      # Check for flags
-      save_to = extra_args.find(&.starts_with?("--save-to="))
-      save_to = save_to.try(&.split('=').last) if save_to
-      interactive = !extra_args.includes?("--no-interactive")
-
-      # Handle --save-to flag for direct format conversion
-      if save_to
-        Spreadsheet.convert(filename, save_to)
-        return
-      end
-
       # Get or create persistent UUID for this spreadsheet
       spreadsheet_uuid = Spreadsheet.get_or_create_spreadsheet_uuid(filename)
 
@@ -146,7 +133,7 @@ module Sheety
       end
 
       # Generate Croupier task source code with initial values
-      source_code = generator.generate_source(initial_values, interactive, filename, intermediate_file)
+      source_code = generator.generate_source(initial_values, true, filename, intermediate_file)
 
       if source_code.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
@@ -178,9 +165,8 @@ module Sheety
 
       puts "Built successfully: #{binary_name}"
 
-      if interactive
-        puts "\nLaunching TUI..."
-        puts "Press Q to exit\n"
+      puts "\nLaunching TUI..."
+      puts "Press Q to exit\n"
 
         # Run the binary - it handles its own rebuilding via Process.exec
         run_result = Process.run(binary_name, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
@@ -190,9 +176,6 @@ module Sheety
           puts "\nNote: TUI requires a terminal. Run './#{binary_name}' in a terminal to view the spreadsheet."
         end
         exit run_result.exit_code
-      else
-        puts "\nRun with: #{binary_name}"
-      end
     end
 
     private def self.print_help : Nil
@@ -203,7 +186,6 @@ module Sheety
 
         Options:
           --save-to=FILE      Convert and save to specified format (extension determines type)
-          --no-interactive    Generate non-interactive binary (runs once and exits)
           -h, --help          Show this help message
 
         Output formats (via --save-to):
