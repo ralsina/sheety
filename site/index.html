@@ -245,20 +245,31 @@
             </div>
 
             <h2>How To Use</h2>
+
+            <h3>Option 1: Download Static Binary (Recommended)</h3>
+            <p>Download a pre-built static binary - no dependencies required:</p>
             <div class="demo-terminal">
-                <div><span class="prompt">$</span> git clone https://github.com/ralsina/sheety</div>
-                <div><span class="prompt">$</span> cd sheety && shards install && shards build</div>
-                <div><span class="prompt">$</span> ./bin/sheety my_sheet.yaml</div>
+                <div><span class="prompt">$</span> wget https://github.com/ralsina/sheety/releases/latest/download/sheety-static-linux-amd64 -O sheety</div>
+                <div><span class="prompt">$</span> chmod +x sheety</div>
+                <div><span class="prompt">$</span> ./sheety my_sheet.yaml</div>
                 <div class="output">Creating new spreadsheet: my_sheet.yaml</div>
                 <div class="output">Building...</div>
                 <div class="output">Launching TUI... [Press Q to exit]</div>
             </div>
+            <p><em>Also available for <a href="https://github.com/ralsina/sheety/releases/latest">ARM64</a> (Raspberry Pi, AWS Graviton, etc.)</em></p>
 
-            <p><strong>Convert between formats:</strong></p>
+            <h3>Option 2: Build from Source</h3>
             <div class="demo-terminal">
-                <div><span class="prompt">$</span> ./bin/sheety data.yaml --save-to=data.xlsx</div>
+                <div><span class="prompt">$</span> git clone https://github.com/ralsina/sheety</div>
+                <div><span class="prompt">$</span> cd sheety && shards install && shards build</div>
+                <div><span class="prompt">$</span> ./bin/sheety my_sheet.yaml</div>
+            </div>
+
+            <h3>Convert Between Formats</h3>
+            <div class="demo-terminal">
+                <div><span class="prompt">$</span> ./sheety data.yaml --save-to=data.xlsx</div>
                 <div class="output">Converted: data.yaml -> data.xlsx</div>
-                <div><span class="prompt">$</span> ./bin/sheety data.xlsx --save-to=data.yaml</div>
+                <div><span class="prompt">$</span> ./sheety data.xlsx --save-to=data.yaml</div>
                 <div class="output">Converted: data.xlsx -> data.yaml</div>
             </div>
 

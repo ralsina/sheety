@@ -54,6 +54,25 @@ Sheety is an Excel-like spreadsheet application for Crystal that compiles spread
 
 ## Installation
 
+### Pre-built Static Binaries (Recommended)
+
+Download pre-built static binaries from the [GitHub Releases](https://github.com/ralsina/sheety/releases) page. No dependencies required - just download and run!
+
+**Available platforms:**
+- **Linux AMD64**: `sheety-static-linux-amd64` (standard x86_64 systems)
+- **Linux ARM64**: `sheety-static-linux-arm64` (Raspberry Pi, AWS Graviton, etc.)
+
+```bash
+# Download and make executable
+wget https://github.com/ralsina/sheety/releases/download/v1.0.0/sheety-static-linux-amd64 -O sheety
+chmod +x sheety
+
+# Run
+./sheety my_sheet.yaml
+```
+
+### Build from Source
+
 ```bash
 git clone https://github.com/ralsina/sheety.git
 cd sheety
