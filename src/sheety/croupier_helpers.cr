@@ -100,6 +100,48 @@ module Sheety
       end
     end
 
+    # Helper for binary arithmetic operations
+    def bin_add(left, right) : String?
+      ln = Sheety::Functions.to_float(left)
+      rn = Sheety::Functions.to_float(right)
+      return nil unless ln && rn
+      format_result(ln + rn)
+    end
+
+    def bin_sub(left, right) : String?
+      ln = Sheety::Functions.to_float(left)
+      rn = Sheety::Functions.to_float(right)
+      return nil unless ln && rn
+      format_result(ln - rn)
+    end
+
+    def bin_mul(left, right) : String?
+      ln = Sheety::Functions.to_float(left)
+      rn = Sheety::Functions.to_float(right)
+      return nil unless ln && rn
+      format_result(ln * rn)
+    end
+
+    def bin_div(left, right) : String?
+      ln = Sheety::Functions.to_float(left)
+      rn = Sheety::Functions.to_float(right)
+      return nil unless ln && rn
+      format_result(ln / rn)
+    end
+
+    def bin_pow(left, right) : String?
+      ln = Sheety::Functions.to_float(left)
+      rn = Sheety::Functions.to_float(right)
+      return nil unless ln && rn
+      # For integer exponents, use BigFloat's ** operator
+      if rn == rn.to_i
+        format_result(ln ** rn.to_i)
+      else
+        # For non-integer exponents, convert to Float and use ** operator
+        format_result(BigFloat.new(ln.to_f ** rn.to_f, precision: 64))
+      end
+    end
+
     # Initialize multiple cells at once from a hash
     def initialize_cells(cells : Hash(String, String))
       cells.each do |key, value|
