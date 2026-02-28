@@ -43,7 +43,7 @@ module Sheety
     end
 
     private def visit(node : CellRef, context : Context) : String
-      ref = node.reference
+      ref = node.reference.upcase
       sheet = node.sheet || context.sheet
 
       # Generate code to fetch using helper function

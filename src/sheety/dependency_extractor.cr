@@ -35,7 +35,7 @@ module Sheety
     end
 
     private def visit(node : CellRef, dependencies : Set(String), sheet : String?) : Nil
-      ref = node.reference
+      ref = node.reference.upcase
       cell_sheet = node.sheet || sheet
       key = cell_sheet ? "#{cell_sheet}!#{ref}" : ref
       dependencies.add(key)
@@ -43,7 +43,7 @@ module Sheety
 
     private def visit(node : RangeRef, dependencies : Set(String), sheet : String?) : Nil
       # Expand range into individual cell references
-      range = node.range
+      range = node.range.upcase
       cell_sheet = node.sheet || sheet
 
       if match = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/)

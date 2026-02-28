@@ -17,7 +17,7 @@ module Sheety
       end
 
       def key : String
-        @sheet ? "#{@sheet}!#{@cell}" : @cell
+        @sheet ? "#{@sheet}!#{@cell.upcase}" : @cell.upcase
       end
     end
 
