@@ -156,11 +156,14 @@ module Sheety
       source += generate_shape_helpers
       source += "\n\n"
 
-      # Then add task definitions
-      @formulas.each do |_, info|
-        source += generate_single_task_source(info)
-        source += "\n\n"
-      end
+      # Then register all formula tasks via a single data-driven loop (one
+      # Croupier::Task.new call site) rather than a literal Task.new block per
+      # cell. Emitting N literal blocks made the Crystal compiler run out of
+      # memory on large sheets; the loop form keeps the constructor at a single
+      # call site while the per-cell data collapses to cheap tuple + lambda
+      # literals.
+      source += generate_task_registration
+      source += "\n\n"
 
       # Finally, run the tasks and print results
       if interactive
@@ -269,20 +272,21 @@ initialize_cells(#{all_cells.inspect})
         end
       end
 
-      # Generate code to collect all cell data per sheet
+      # Generate code to collect all cell data per sheet. Each sheet's data is
+      # built with << appends rather than a single large array literal, so the
+      # compiler lowers N cheap append calls instead of one N-element literal.
       sheet_collection_code = sheets_data.map do |sheet, cells|
         sheet_display_name = sheet.empty? ? "(default)" : sheet
         sheet_var_name = sheet.empty? ? "default" : sheet.gsub(/[^a-zA-Z0-9]/, "_")
         sheet_key_prefix = sheet.empty? ? "" : "#{sheet}!"
 
-        cells_array = cells.map do |cell, data|
-          "{cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: Croupier::TaskManager.get(\"#{sheet_key_prefix}#{cell}\") || \"(empty)\"}"
-        end.join(",\n          ")
+        appends = cells.map do |cell, data|
+          %(  sheet_#{sheet_var_name}_data << {cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: Croupier::TaskManager.get("#{sheet_key_prefix}#{cell}") || "(empty)"})
+        end.join("\n")
 
         "  # Sheet: #{sheet_display_name}
-  sheet_#{sheet_var_name}_data = [
-            #{cells_array}
-          ]"
+  sheet_#{sheet_var_name}_data = [] of NamedTuple(cell: String, formula: String, value: String)
+#{appends}"
       end.join("\n\n")
 
       sheet_print_code = sheets_data.keys.sort!.map do |sheet|
@@ -439,37 +443,55 @@ puts ""
       helpers.rstrip('\n') + "\n"
     end
 
-    # Generate source code for a single task
-    private def generate_single_task_source(info : FormulaInfo) : String
+    # Emit a single data-driven registration loop for every formula task,
+    # instead of one literal Croupier::Task.new block per cell. Each task is a
+    # named tuple carrying its id, a Proc(Array(String)) that yields its input
+    # keys, its output key, and a Proc(String) that computes its body. The loop
+    # has exactly one register_formula_task (and thus one Croupier::Task.new)
+    # call site, which is what keeps the compiled program small enough to build
+    # on large sheets.
+    private def generate_task_registration : String
+      entries = @formulas.map { |_, info| task_entry_source(info) }
+
+      return "" if entries.empty?
+
+      String.build do |io|
+        io << "# Formula task registration (data-driven loop)\n"
+        io << "formula_tasks = [\n"
+        entries.each { |entry| io << entry }
+        io << "]\n"
+        io << "formula_tasks.each do |task|\n"
+        io << "  register_formula_task(task[:id], task[:inputs].call, task[:output], &task[:body])\n"
+        io << "end\n"
+      end
+    end
+
+    # Build the source for one entry in the formula_tasks table. Mirrors the
+    # id/inputs/outputs/body derivation that previously lived in the per-cell
+    # literal block, so runtime behavior is unchanged.
+    private def task_entry_source(info : FormulaInfo) : String
+      id = "formula_#{sanitize_key(info.key)}"
+      output = "kv://#{info.key}"
+
       formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
       ast = parse_formula(formula)
 
       if ast.nil?
-        # Invalid formula
-        return %{
-          Croupier::Task.new(
-            id: "formula_#{sanitize_key(info.key)}",
-            inputs: [] of String,
-            outputs: [#{info.key.inspect}],
-          ) do
-            "#VALUE!"
-          end
-        }
+        # Invalid formula: empty inputs, #VALUE! body.
+        return %(  {id: #{id.inspect}, inputs: ->{ [] of String }, output: #{output.inspect}, body: ->{ "#VALUE!" }},\n)
       end
 
       # Extract dependencies - these are the inputs
       dependencies = @extractor.extract(ast, info.sheet)
 
-      # Generate the concrete calculation code. This is used both to derive the
-      # task's inputs (by scanning for fetch_cell_range calls) and — when no
-      # shared shape helper is assigned — as the task body.
+      # Generate the concrete calculation code. Used to derive inputs (by
+      # scanning for fetch_cell_range calls) and as the fallback body.
       calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
 
-      # Build the inputs array - use helpers if the formula uses ranges
-      # Find all fetch_cell_range calls
+      # Build the inputs array expression - use range helpers when ranges appear
       range_matches = calc_code.scan(/fetch_cell_range\(([^)]+)\)/).map(&.[1])
 
-      inputs_code = if !range_matches.empty?
+      inputs_expr = if !range_matches.empty?
                       # Multiple ranges - combine them with + operator
                       range_inputs_calls = range_matches.map { |range_params| "range_inputs(#{range_params})" }
                       range_inputs_calls.join(" + ")
@@ -479,32 +501,22 @@ puts ""
                       "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "] of String"
                     end
 
-      # Task body: if this formula shares a calc_shape_N helper, call it with
-      # the concrete fetch expressions for this cell's reference leaves.
-      # Otherwise fall back to the inline calculation (e.g. when generate_source
-      # is called without building shape helpers, or assignment is missing).
-      body = if (assignment = @shape_assignment) && (index = assignment[info.key]?)
-               call_args = @generator.reference_params(ast, info.sheet).map { |param| @generator.fetch_expression_for(param) }
-               "calc_shape_#{index}(#{call_args.join(", ")})"
-             else
-               %(begin
+      # Body: if this formula shares a calc_shape_N helper, call it with the
+      # concrete fetch expressions for this cell's reference leaves. Otherwise
+      # fall back to the inline calculation.
+      body_expr = if (assignment = @shape_assignment) && (index = assignment[info.key]?)
+                    call_args = @generator.reference_params(ast, info.sheet).map { |param| @generator.fetch_expression_for(param) }
+                    "calc_shape_#{index}(#{call_args.join(", ")})"
+                  else
+                    %(begin
             result = (#{calc_code})
             format_result(result)
           rescue e : Exception
             "#ERROR: " + (e.message || "Unknown error")
           end)
-             end
+                  end
 
-      # Build the task - the proc should return the result as a string
-      %{
-        Croupier::Task.new(
-          id: "formula_#{sanitize_key(info.key)}",
-          inputs: #{inputs_code},
-          outputs: ["kv://#{info.key}"],
-        ) do
-          #{body}
-        end
-      }
+      %(  {id: #{id.inspect}, inputs: ->{ #{inputs_expr} }, output: #{output.inspect}, body: ->{ #{body_expr} }},\n)
     end
 
     # Generate TUI mode
@@ -532,18 +544,19 @@ puts ""
         end
       end
 
-      # Generate code to collect all cell data per sheet
+      # Generate code to collect all cell data per sheet. Built with << appends
+      # rather than a single large array literal, to keep compile-time memory
+      # low on big sheets (matches the batch-mode collection form).
       sheet_collection_code = sheets_data.map do |sheet, cells|
         sheet_var_name = sheet.empty? ? "default" : sheet.gsub(/[^a-zA-Z0-9]/, "_")
         sheet_key_prefix = sheet.empty? ? "" : "#{sheet}!"
 
-        cells_array = cells.map do |cell, data|
-          "{cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: fetch_cell(\"#{sheet_key_prefix}#{cell}\")}"
-        end.join(",\n          ")
+        appends = cells.map do |cell, data|
+          %(  sheet_#{sheet_var_name}_data << {cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: fetch_cell("#{sheet_key_prefix}#{cell}")})
+        end.join("\n")
 
-        "  sheet_#{sheet_var_name}_data = [
-            #{cells_array}
-          ]"
+        "  sheet_#{sheet_var_name}_data = [] of NamedTuple(cell: String, formula: String, value: String)
+#{appends}"
       end.join("\n\n")
 
       # Build the sheets array and data hash

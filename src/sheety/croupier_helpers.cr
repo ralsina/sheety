@@ -1,4 +1,5 @@
 require "big"
+
 module Sheety
   # Helper functions for generated spreadsheet binaries
   #
@@ -146,6 +147,21 @@ module Sheety
     def initialize_cells(cells : Hash(String, String))
       cells.each do |key, value|
         Croupier::TaskManager.set(key, value)
+      end
+    end
+
+    # Register one formula task. This is a thin wrapper around Croupier::Task.new
+    # so that the generated source can register thousands of tasks from a single
+    # data-driven loop (one Task.new call site in the compiled program) instead
+    # of emitting a literal Task.new block per cell — which made the Crystal
+    # compiler run out of memory on large sheets.
+    def register_formula_task(id : String, inputs : Array(String), output : String, &block : -> String) : Nil
+      Croupier::Task.new(
+        id: id,
+        inputs: inputs,
+        outputs: [output],
+      ) do
+        block.call
       end
     end
 

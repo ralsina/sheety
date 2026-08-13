@@ -250,8 +250,26 @@ describe Sheety::CroupierGenerator do
       gen.add_formula("C1", "=SUM(A1:A5)")
       source = gen.generate_source
       source.should contain("require \"croupier\"")
-      source.should contain("Croupier::Task.new")
+      # Tasks are registered through a single helper call site, not literal
+      # Croupier::Task.new blocks (which OOM'd the compiler on large sheets).
+      source.should contain("register_formula_task")
       source.should contain("SUM")
+    end
+
+    it "emits exactly one Croupier::Task.new regardless of cell count" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D2", "=B2*C2", "Sheet1")
+      gen.add_formula("D3", "=B3*C3", "Sheet1")
+      gen.add_formula("D4", "=B4*C4", "Sheet1")
+      gen.add_formula("D5", "=B5*C5", "Sheet1")
+      source = gen.generate_source
+
+      # The only Croupier::Task.new is the one inside register_formula_task
+      # (in croupier_helpers.cr, required by the generated source). The
+      # generated body itself must not contain any Task.new literal.
+      task_new_count = source.scan("Croupier::Task.new").size
+      task_new_count.should eq(0)
+      source.should contain("register_formula_task")
     end
 
     it "generates source with dependencies" do
@@ -289,19 +307,19 @@ describe Sheety::CroupierGenerator do
       shape_defs.should eq(2)
     end
 
-    it "preserves task topology (inputs/outputs/id) with shared helpers" do
+    it "preserves task topology (inputs/outputs/id) via the data table" do
       gen = Sheety::CroupierGenerator.new
       gen.add_formula("D2", "=B2*C2", "Sheet1")
       gen.add_formula("D3", "=B3*C3", "Sheet1")
       source = gen.generate_source
 
-      # Each cell still gets its own task with correct deps/output.
+      # Each cell still gets its own entry with correct id, inputs, and output.
       source.should contain(%(id: "formula_Sheet1_D2"))
       source.should contain(%(id: "formula_Sheet1_D3"))
       source.should contain(%(["kv://Sheet1!B2", "kv://Sheet1!C2"] of String))
       source.should contain(%(["kv://Sheet1!B3", "kv://Sheet1!C3"] of String))
-      source.should contain(%(outputs: ["kv://Sheet1!D2"]))
-      source.should contain(%(outputs: ["kv://Sheet1!D3"]))
+      source.should contain(%(output: "kv://Sheet1!D2"))
+      source.should contain(%(output: "kv://Sheet1!D3"))
     end
   end
 end
