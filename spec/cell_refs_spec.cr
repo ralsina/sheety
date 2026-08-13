@@ -9,6 +9,16 @@ describe Sheety do
       ast.expr.should eq("A1")
     end
 
+    it "parses cell references with 3+ digit rows as CellRef, not NamedRef" do
+      # Regression: refs with 4+ characters (A100, AA10, XFD1048576) were
+      # misclassified as NamedRef, which dropped them from the dependency graph
+      # and made Croupier raise "Waiting for" on sheets using them.
+      ["=A100", "=A1000", "=Z100", "=AA10", "=CV97", "=XFD1048576"].each do |formula|
+        ast = Sheety.parse_to_ast(formula)
+        ast.should be_a(Sheety::AST::CellRef), formula
+      end
+    end
+
     it "parses cell reference with absolute column" do
       ast = Sheety.parse_to_ast("=$A1")
       ast.should be_a(Sheety::AST::CellRef)

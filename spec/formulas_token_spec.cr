@@ -311,9 +311,23 @@ describe Sheety::Tokens do
         m.should be_nil
       end
 
+      it "does not match cell references with 3+ digit rows" do
+        # Regression: the old `size <= 3` guard misclassified any 4+ char
+        # cell ref as a named range, which dropped it from the dependency graph.
+        ["A100", "A1000", "Z100", "AA10", "CV97", "XFD1048576"].each do |ref|
+          Sheety::Tokens::NamedRange.match?(ref).should be_nil, ref
+        end
+      end
+
       it "does not match short column names" do
         m = Sheety::Tokens::NamedRange.match?("AB")
         m.should be_nil
+      end
+
+      it "matches named ranges that contain digits after a long prefix" do
+        # Sales2024 is a valid named range: 5 letters disqualify it as a column.
+        m = Sheety::Tokens::NamedRange.match?("Sales2024")
+        m.should_not be_nil
       end
     end
 
