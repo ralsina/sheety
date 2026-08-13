@@ -24,6 +24,21 @@ module Sheety
       File.info(sheety_binary).modification_time
     end
 
+    # A short, stable string identifying the current sheety binary (its mtime
+    # as unix seconds). Used to fold the sheety version into the generated-
+    # binary cache key, so rebuilding sheety (bug fixes, generator changes)
+    # invalidates stale cached binaries rather than silently reusing them.
+    # Returns "unknown" when sheety isn't on PATH (e.g. a generated binary
+    # running on a host without sheety installed) so callers hashing this
+    # never raise.
+    def self.sheety_version : String
+      sheety_binary = Process.find_executable("sheety")
+      return "unknown" unless sheety_binary
+      File.info(sheety_binary).modification_time.to_unix.to_s
+    rescue
+      "unknown"
+    end
+
     # Check if sheety has been updated since data dir was initialized
     private def self.sheety_updated? : Bool
       version_file = File.join(path, ".sheety_version")

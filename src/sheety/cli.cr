@@ -15,6 +15,11 @@ module Sheety
       File.open(filename, "rb") do |file|
         digest.update(file)
       end
+      # Fold in the sheety binary version so a sheety upgrade (rebuilt binary,
+      # new generator logic, dependency bumps) invalidates stale cached
+      # generated binaries. Without this, unchanged spreadsheet content would
+      # reuse a binary built by an older sheety.
+      digest.update(DataDir.sheety_version)
       digest.final.hexstring
     end
 
@@ -25,8 +30,6 @@ module Sheety
       # Ensure data directory exists on startup
       DataDir.ensure
       DataDir.ensure_shard_yml
-      DataDir.ensure_dependencies
-      DataDir.extract_embedded_files
 
       if args.size == 0 || args.includes?("-h") || args.includes?("--help")
         print_help
@@ -87,6 +90,28 @@ module Sheety
       output_cr = File.join(DataDir.path, "tmp", "#{hash_short}.cr")
       binary_name = File.join(DataDir.path, "tmp", "#{hash_short}")
 
+      # Fast path: if a fresh cached binary already exists (spreadsheet content
+      # AND sheety version match, since both are folded into the hash), reuse it
+      # directly and skip the heavy data-dir setup (dependency install, embedded
+      # file extraction). This avoids redundant shards install/network work on
+      # every launch when nothing has changed.
+      if File.exists?(binary_name) && (!File.exists?(output_cr) || File.info(binary_name).modification_time >= File.info(output_cr).modification_time)
+        puts "Using cached binary: #{binary_name}"
+        puts "\nLaunching TUI..."
+        puts "Press Q to exit\n"
+        run_result = Process.run(binary_name, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+        unless run_result.success?
+          puts "\nNote: TUI requires a terminal. Run './#{binary_name}' in a terminal to view the spreadsheet."
+        end
+        exit run_result.exit_code
+      end
+
+      # Cache miss: ensure the build environment is set up before generating
+      # and compiling. These are the expensive steps (shards install, file
+      # extraction) that the fast path above skips.
+      DataDir.ensure_dependencies
+      DataDir.extract_embedded_files
+
       # State files use persistent UUID (survive across rebuilds)
       croupier_state = File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.croupier")
       kv_store = File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.kv")
@@ -137,25 +162,16 @@ module Sheety
         exit 1
       end
 
-      # Check if source file already exists (content-hash-derived name, so an
-      # unchanged sheet reuses the cached entrypoint + chunk files)
-      if File.exists?(output_cr)
-        puts "Using cached source: #{output_cr}"
-      else
-        # Write the entrypoint and any chunk files (large sheets split the task
-        # table across files to cap compiler memory)
-        CroupierGenerator.write_generated(generated, output_cr)
-      end
+      # Write the entrypoint and any chunk files (large sheets split the task
+      # table across files to cap compiler memory). We only get here on a cache
+      # miss, so (re)write the source — content-hash-derived name means an
+      # unchanged sheet reuses the same path, but a changed sheety or sheet
+      # produces a new hash and thus a fresh path.
+      CroupierGenerator.write_generated(generated, output_cr)
 
-      # Check if binary already exists and is newer than source
-      if File.exists?(binary_name) && File.info(binary_name).modification_time >= File.info(output_cr).modification_time
-        puts "Using cached binary: #{binary_name}"
-        build_result = Process::Status[0] # Simulate success
-      else
-        # Build the binary
-        puts "Building #{binary_name}..."
-        build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-      end
+      # Build the binary (the fast path above already returned for cache hits)
+      puts "Building #{binary_name}..."
+      build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
       unless build_result.success?
         STDERR.puts "\nError: Build failed"

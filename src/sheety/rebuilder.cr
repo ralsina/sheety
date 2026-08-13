@@ -126,6 +126,9 @@ module Sheety
       File.open(filename, "rb") do |file|
         digest.update(file)
       end
+      # Fold in the sheety binary version so a sheety upgrade invalidates
+      # stale cached binaries (mirrors CLI.calculate_file_hash).
+      digest.update(DataDir.sheety_version)
       digest.final.hexstring
     end
 
