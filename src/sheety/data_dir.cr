@@ -17,10 +17,12 @@ module Sheety
       end
     end
 
-    # Get the sheety binary's modification time
-    private def self.sheety_mtime : Time
+    # Get the sheety binary's modification time, or nil if sheety isn't on PATH.
+    # The static/distributed binary and generated binaries may run on hosts
+    # without sheety installed, so this must not raise — callers handle nil.
+    private def self.sheety_mtime : Time?
       sheety_binary = Process.find_executable("sheety")
-      raise "sheety binary not found in PATH" unless sheety_binary
+      return nil unless sheety_binary
       File.info(sheety_binary).modification_time
     end
 
@@ -28,28 +30,33 @@ module Sheety
     # as unix seconds). Used to fold the sheety version into the generated-
     # binary cache key, so rebuilding sheety (bug fixes, generator changes)
     # invalidates stale cached binaries rather than silently reusing them.
-    # Returns "unknown" when sheety isn't on PATH (e.g. a generated binary
-    # running on a host without sheety installed) so callers hashing this
-    # never raise.
+    # Returns "unknown" when sheety isn't on PATH (e.g. a generated or static
+    # binary running on a host without sheety installed) so callers hashing
+    # this never raise.
     def self.sheety_version : String
-      sheety_binary = Process.find_executable("sheety")
-      return "unknown" unless sheety_binary
-      File.info(sheety_binary).modification_time.to_unix.to_s
-    rescue
-      "unknown"
+      mtime = sheety_mtime
+      return "unknown" unless mtime
+      mtime.to_unix.to_s
     end
 
-    # Check if sheety has been updated since data dir was initialized
+    # Check if sheety has been updated since data dir was initialized.
+    # When sheety isn't on PATH we can't detect updates, so treat the
+    # environment as current (return false) to avoid wiping lib/src needlessly.
     private def self.sheety_updated? : Bool
       version_file = File.join(path, ".sheety_version")
       return true unless File.exists?(version_file)
-      File.info(version_file).modification_time < sheety_mtime
+      mtime = sheety_mtime
+      return false unless mtime
+      File.info(version_file).modification_time < mtime
     end
 
     # Write version marker after successful update
     private def self.write_version_marker : Nil
       version_file = File.join(path, ".sheety_version")
-      File.write(version_file, sheety_mtime.to_unix.to_s)
+      # Use the current time as the marker when sheety isn't on PATH, so the
+      # marker at least records when the environment was last set up.
+      marker_time = sheety_mtime || Time.utc
+      File.write(version_file, marker_time.to_unix.to_s)
     end
 
     # Ensure the data directory exists
