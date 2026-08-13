@@ -97,6 +97,88 @@ describe Sheety::CodeGenerator do
   end
 end
 
+describe Sheety::CodeGenerator do
+  describe "shape deduplication" do
+    it "assigns the same shape_key to structurally identical formulas" do
+      gen = Sheety::CodeGenerator.new
+      left = Sheety.parse_to_ast("=B2*C2")
+      right = Sheety.parse_to_ast("=B5*C5")
+      gen.shape_key(left).should eq(gen.shape_key(right))
+    end
+
+    it "assigns different shape_keys when literal values differ" do
+      gen = Sheety::CodeGenerator.new
+      with_vat = Sheety.parse_to_ast("=A2*1.21")
+      without_vat = Sheety.parse_to_ast("=A2*1.1")
+      gen.shape_key(with_vat).should_not eq(gen.shape_key(without_vat))
+    end
+
+    it "assigns different shape_keys for different operators" do
+      gen = Sheety::CodeGenerator.new
+      mul = Sheety.parse_to_ast("=A2*B2")
+      add = Sheety.parse_to_ast("=A2+B2")
+      gen.shape_key(mul).should_not eq(gen.shape_key(add))
+    end
+
+    it "ignores concrete cell references when computing the shape" do
+      gen = Sheety::CodeGenerator.new
+      sum_a = Sheety.parse_to_ast("=SUM(A1:A3)")
+      sum_b = Sheety.parse_to_ast("=SUM(B2:B4)")
+      gen.shape_key(sum_a).should eq(gen.shape_key(sum_b))
+    end
+
+    it "treats different function names as different shapes" do
+      gen = Sheety::CodeGenerator.new
+      sum = Sheety.parse_to_ast("=SUM(A1:A3)")
+      avg = Sheety.parse_to_ast("=AVERAGE(A1:A3)")
+      gen.shape_key(sum).should_not eq(gen.shape_key(avg))
+    end
+
+    it "generates a parameterized expression with positional params" do
+      gen = Sheety::CodeGenerator.new
+      ast = Sheety.parse_to_ast("=B2*C2")
+      code = gen.generate_parameterized(ast)
+      code.should contain("p0")
+      code.should contain("p1")
+      # No concrete fetches in the parameterized body.
+      code.should_not contain("fetch_cell")
+    end
+
+    it "keeps literal values in the parameterized expression" do
+      gen = Sheety::CodeGenerator.new
+      ast = Sheety.parse_to_ast("=A2*1.21")
+      code = gen.generate_parameterized(ast)
+      code.should contain("BigFloat.new(1.21")
+      code.should contain("p0")
+    end
+
+    it "collects reference params in left-to-right order" do
+      gen = Sheety::CodeGenerator.new
+      ast = Sheety.parse_to_ast("=B2*C2")
+      params = gen.reference_params(ast, "Sheet1")
+      params.map(&.reference).should eq(["B2", "C2"])
+      params.map(&.sheet).should eq(["Sheet1", "Sheet1"])
+    end
+
+    it "renders the concrete fetch expression for a cell param" do
+      gen = Sheety::CodeGenerator.new
+      ast = Sheety.parse_to_ast("=B2")
+      param = gen.reference_params(ast, "Sheet1").first
+      gen.fetch_expression_for(param).should eq(%(fetch_cell("Sheet1!B2")))
+    end
+
+    it "renders the concrete fetch expression for a range param" do
+      gen = Sheety::CodeGenerator.new
+      ast = Sheety.parse_to_ast("=SUM(B2:B4)")
+      param = gen.reference_params(ast, "Sheet1").first
+      expr = gen.fetch_expression_for(param)
+      expr.should contain("fetch_cell_range")
+      expr.should contain(%("Sheet1"))
+      expr.should contain(%("B"))
+    end
+  end
+end
+
 describe Sheety::DependencyExtractor do
   describe "#extract" do
     it "extracts single cell reference" do
@@ -178,6 +260,48 @@ describe Sheety::CroupierGenerator do
       source = gen.generate_source
       source.should contain("\"A1\"")
       source.should contain("\"B1\"")
+    end
+
+    it "emits one shared calc_shape helper per unique formula shape" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D2", "=B2*C2", "Sheet1")
+      gen.add_formula("D3", "=B3*C3", "Sheet1")
+      gen.add_formula("D4", "=B4*C4", "Sheet1")
+      source = gen.generate_source
+
+      # Exactly one helper definition for the repeated shape.
+      shape_defs = source.scan("def calc_shape_").size
+      shape_defs.should eq(1)
+
+      # Each task body calls the shared helper rather than inlining arithmetic.
+      source.should contain("calc_shape_0(fetch_cell(\"Sheet1!B2\"), fetch_cell(\"Sheet1!C2\"))")
+      source.should contain("calc_shape_0(fetch_cell(\"Sheet1!B3\"), fetch_cell(\"Sheet1!C3\"))")
+      source.should contain("calc_shape_0(fetch_cell(\"Sheet1!B4\"), fetch_cell(\"Sheet1!C4\"))")
+    end
+
+    it "emits separate helpers for distinct shapes" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D2", "=B2*C2", "Sheet1")
+      gen.add_formula("E2", "=B2+C2", "Sheet1")
+      source = gen.generate_source
+
+      shape_defs = source.scan("def calc_shape_").size
+      shape_defs.should eq(2)
+    end
+
+    it "preserves task topology (inputs/outputs/id) with shared helpers" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D2", "=B2*C2", "Sheet1")
+      gen.add_formula("D3", "=B3*C3", "Sheet1")
+      source = gen.generate_source
+
+      # Each cell still gets its own task with correct deps/output.
+      source.should contain(%(id: "formula_Sheet1_D2"))
+      source.should contain(%(id: "formula_Sheet1_D3"))
+      source.should contain(%(["kv://Sheet1!B2", "kv://Sheet1!C2"] of String))
+      source.should contain(%(["kv://Sheet1!B3", "kv://Sheet1!C3"] of String))
+      source.should contain(%(outputs: ["kv://Sheet1!D2"]))
+      source.should contain(%(outputs: ["kv://Sheet1!D3"]))
     end
   end
 end

@@ -28,6 +28,9 @@ module Sheety
     @kv_store_path : String?
     @spreadsheet_uuid : String?
     @original_filename : String?
+    # Maps FormulaInfo#key -> index of its shared calc_shape_N helper.
+    # Built once per generate_source call; nil outside that scope.
+    @shape_assignment : Hash(String, Int32)?
 
     def initialize
       @formulas = Hash(String, FormulaInfo).new
@@ -37,6 +40,7 @@ module Sheety
       @kv_store_path = nil
       @spreadsheet_uuid = nil
       @original_filename = nil
+      @shape_assignment = nil
     end
 
     # Set the original filename (for save functionality)
@@ -145,6 +149,13 @@ module Sheety
 
       source += "\n"
 
+      # Build shape assignment and emit one shared helper per unique formula
+      # shape. Each parseable formula's task body becomes a call to its helper,
+      # so a formula repeated across many cells only generates its calculation
+      # logic once.
+      source += generate_shape_helpers
+      source += "\n\n"
+
       # Then add task definitions
       @formulas.each do |_, info|
         source += generate_single_task_source(info)
@@ -173,7 +184,7 @@ module Sheety
 
         # Extract dependencies including expanded ranges
         dependencies = @extractor.extract(ast, info.sheet)
-        dependencies.each do |dep|
+        dependencies.each do |_|
           # Check if this dependency is a range reference by looking for patterns
           # We need to find the original range references in the AST
         end
@@ -184,11 +195,11 @@ module Sheety
           # Extract all range parameters (not just the first one)
           calc_code.scan(/fetch_cell_range\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/) do |match|
             ranges << {
-              sheet: match[1],
+              sheet:     match[1],
               start_col: match[2],
               start_row: match[3].to_i,
-              end_col: match[4],
-              end_row: match[5].to_i
+              end_col:   match[4],
+              end_row:   match[5].to_i,
             }
           end
         end
@@ -201,9 +212,9 @@ module Sheety
       initial_values.each do |key, value|
         value_str = case value
                     when BigFloat then value.to_s
-                    when String  then value
-                    when Bool    then value.to_s
-                    else              ""
+                    when String   then value
+                    when Bool     then value.to_s
+                    else               ""
                     end
         all_cells[key] = value_str
       end
@@ -371,6 +382,63 @@ puts ""
 }
     end
 
+    # Group all parseable formulas by structural shape and emit one
+    # `calc_shape_N(...)` helper per unique shape. Populates @shape_assignment
+    # so generate_single_task_source can look up each formula's helper index.
+    # Formulas that fail to parse are skipped here (they keep their inline
+    # #VALUE! body) and are absent from @shape_assignment.
+    private def generate_shape_helpers : String
+      assignment = Hash(String, Int32).new
+      # Ordered map: shape key -> {first ast, first sheet, param list, count}.
+      shapes = [] of {key: String, ast: AST::Node, sheet: String?, params: Array(CodeGenerator::ReferenceParam)}
+
+      @formulas.each do |_, info|
+        formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
+        ast = parse_formula(formula)
+        next if ast.nil?
+
+        shape_key = @generator.shape_key(ast)
+        existing = shapes.index { |entry| entry[:key] == shape_key }
+        if existing
+          assignment[info.key] = existing
+        else
+          params = @generator.reference_params(ast, info.sheet)
+          shapes << {key: shape_key, ast: ast, sheet: info.sheet, params: params}
+          assignment[info.key] = shapes.size - 1
+        end
+      end
+
+      @shape_assignment = assignment
+
+      return "" if shapes.empty?
+
+      helpers = String.build do |io|
+        io << "# Shared calculation helpers (one per unique formula shape)\n"
+        shapes.each_with_index do |entry, index|
+          params_decls = entry[:params].each_index.map do |param_index|
+            @generator.param_declaration(entry[:params][param_index], param_index)
+          end.join(", ")
+          # Prefer the param declarations if there are any; otherwise use an
+          # empty argument list (a no-arg formula like =42).
+          signature = params_decls.empty? ? "" : "(#{params_decls})"
+          param_body = @generator.generate_parameterized(entry[:ast], entry[:sheet])
+
+          io << %(# Shape #{index}\n)
+          io << %(def calc_shape_#{index}#{signature}\n)
+          io << %(  begin\n)
+          io << %(    result = (#{param_body})\n)
+          io << %(    format_result(result)\n)
+          io << %(  rescue e : Exception\n)
+          io << %(    "#ERROR: " + (e.message || "Unknown error")\n)
+          io << %(  end\n)
+          io << %(end\n\n)
+        end
+      end
+
+      # Trim trailing blank line; caller adds its own spacing.
+      helpers.rstrip('\n') + "\n"
+    end
+
     # Generate source code for a single task
     private def generate_single_task_source(info : FormulaInfo) : String
       formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
@@ -392,7 +460,9 @@ puts ""
       # Extract dependencies - these are the inputs
       dependencies = @extractor.extract(ast, info.sheet)
 
-      # Generate the calculation code
+      # Generate the concrete calculation code. This is used both to derive the
+      # task's inputs (by scanning for fetch_cell_range calls) and — when no
+      # shared shape helper is assigned — as the task body.
       calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
 
       # Build the inputs array - use helpers if the formula uses ranges
@@ -409,6 +479,22 @@ puts ""
                       "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "] of String"
                     end
 
+      # Task body: if this formula shares a calc_shape_N helper, call it with
+      # the concrete fetch expressions for this cell's reference leaves.
+      # Otherwise fall back to the inline calculation (e.g. when generate_source
+      # is called without building shape helpers, or assignment is missing).
+      body = if (assignment = @shape_assignment) && (index = assignment[info.key]?)
+               call_args = @generator.reference_params(ast, info.sheet).map { |param| @generator.fetch_expression_for(param) }
+               "calc_shape_#{index}(#{call_args.join(", ")})"
+             else
+               %(begin
+            result = (#{calc_code})
+            format_result(result)
+          rescue e : Exception
+            "#ERROR: " + (e.message || "Unknown error")
+          end)
+             end
+
       # Build the task - the proc should return the result as a string
       %{
         Croupier::Task.new(
@@ -416,12 +502,7 @@ puts ""
           inputs: #{inputs_code},
           outputs: ["kv://#{info.key}"],
         ) do
-          begin
-            result = (#{calc_code})
-            format_result(result)
-          rescue e : Exception
-            "#ERROR: " + (e.message || "Unknown error")
-          end
+          #{body}
         end
       }
     end
