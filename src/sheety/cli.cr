@@ -148,7 +148,7 @@ module Sheety
       # Check if binary already exists and is newer than source
       if File.exists?(binary_name) && File.info(binary_name).modification_time >= File.info(output_cr).modification_time
         puts "Using cached binary: #{binary_name}"
-        build_result = Process::Status.new(0) # Simulate success
+        build_result = Process::Status[0] # Simulate success
       else
         # Build the binary
         puts "Building #{binary_name}..."

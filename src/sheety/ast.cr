@@ -31,10 +31,10 @@ module Sheety
       end
 
       private def format_number(value : BigFloat) : String
-        # Check if value is a whole number
-        int_val = value.to_i
-        if BigFloat.new(int_val.to_f, precision: 64) == value
-          int_val.to_s
+        # Check if value is a whole number without forcing it into a fixed-width Int
+        # (large literals like 1E+10 overflow Int32). Compare via the fractional part.
+        if value == value.floor
+          value.to_i64.to_s
         else
           value.to_s
         end

@@ -3,8 +3,10 @@ require "big"
 module Sheety
   module Functions
     # Type alias for Excel cell values
-    # Using BigFloat for arbitrary precision arithmetic
-    alias CellValue = BigFloat | String | Bool | ErrorValue | Nil
+    # BigFloat is used for arbitrary precision arithmetic where it matters (e.g. SUM),
+    # while Float64 is accepted as the natural result of most math functions (Math.sqrt,
+    # Random.rand, etc.) so we don't fight the standard library's numeric types.
+    alias CellValue = BigFloat | Float64 | String | Bool | ErrorValue | Nil
 
     # Default precision for BigFloat operations (enough for most Excel use cases)
     DEFAULT_PRECISION = 64
@@ -14,7 +16,7 @@ module Sheety
       case value
       when BigFloat
         value
-      when Int, Int32
+      when Float64, Int, Int32
         BigFloat.new(value.to_f, precision: precision)
       when String
         begin
@@ -130,6 +132,8 @@ module Sheety
         case v
         when BigFloat
           result << v
+        when Float64
+          result << BigFloat.new(v)
         when String
           # Try to convert string to number
           begin
@@ -152,6 +156,7 @@ module Sheety
       case value
       when String     then value
       when BigFloat   then value.to_s
+      when Float64    then value.to_s
       when Bool       then value ? "TRUE" : "FALSE"
       when ErrorValue then value.to_s
       when Nil        then ""
@@ -165,6 +170,8 @@ module Sheety
       case value
       when BigFloat
         value
+      when Float64
+        BigFloat.new(value)
       when String
         begin
           BigFloat.new(value)
@@ -371,9 +378,9 @@ module Sheety
     # ROUND: Rounds a number to a specified number of digits
     def self.round(value : CellValue, digits : CellValue = 0.0) : CellValue
       num = to_float(value)
-      d = to_float(digits) || 0.0
+      d = to_float(digits) || BigFloat.new(0)
       return value if num.nil?
-      num.round(d.to_i).to_f
+      num.round(d.to_i)
     end
 
     # ABS: Returns the absolute value of a number
@@ -435,10 +442,11 @@ module Sheety
     # Helper to convert cell value to boolean
     private def self.to_bool(value : CellValue) : Bool?
       case value
-      when Bool    then value
+      when Bool     then value
       when BigFloat then value != BigFloat.new(0.0, precision: DEFAULT_PRECISION)
-      when String  then !value.empty?
-      else              nil
+      when Float64  then value != 0.0
+      when String   then !value.empty?
+      else               nil
       end
     end
 
@@ -447,10 +455,11 @@ module Sheety
       return false if values.empty?
       values.all? do |v|
         case v
-        when Bool    then v
+        when Bool     then v
         when BigFloat then v != BigFloat.new(0.0, precision: DEFAULT_PRECISION)
-        when String  then !v.empty?
-        else              false
+        when Float64  then v != 0.0
+        when String   then !v.empty?
+        else               false
         end
       end
     end
@@ -460,10 +469,11 @@ module Sheety
       return false if values.empty?
       values.any? do |v|
         case v
-        when Bool    then v
+        when Bool     then v
         when BigFloat then v != BigFloat.new(0.0, precision: DEFAULT_PRECISION)
-        when String  then !v.empty?
-        else              false
+        when Float64  then v != 0.0
+        when String   then !v.empty?
+        else               false
         end
       end
     end
@@ -577,12 +587,17 @@ module Sheety
       # Handle errors
       return 0 if left.is_a?(ErrorValue) || right.is_a?(ErrorValue)
 
+      # Normalize numbers: any numeric type (BigFloat or Float64) compares against any other
+      left_num = to_float(left)
+      right_num = to_float(right)
+      if left_num && right_num
+        return left_num <=> right_num
+      end
+
       case {left, right}
-      when {BigFloat, BigFloat}
-        left <=> right
-      when {BigFloat, String}
+      when {BigFloat, String}, {Float64, String}
         -1 # Numbers are always less than strings in Excel
-      when {String, BigFloat}
+      when {String, BigFloat}, {String, Float64}
         1
       when {String, String}
         left <=> right
@@ -1042,7 +1057,7 @@ module Sheety
         crit_value = $2
 
         case value
-        when BigFloat, String
+        when BigFloat, Float64, String
           # Try to convert both to numbers for comparison
           val_num = to_float(value)
           crit_num = to_float(crit_value)

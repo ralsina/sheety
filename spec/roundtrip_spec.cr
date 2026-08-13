@@ -156,17 +156,34 @@ private def parse_roundtrip_value(value : YAML::Any) : Sheety::Functions::CellVa
   end
 end
 
-# Helper to normalize values for comparison
+# Helper to normalize values for comparison.
+# The xlsx importer tends to round-trip values as strings, and integer literals in the
+# source YAML arrive as Int while the same cell reimports as a numeric string like "100.0".
+# To compare fairly we coerce anything that looks numeric to a canonical numeric form.
 private def normalize_roundtrip_value(value)
+  # Unwrap YAML::Any so the case below sees the underlying scalar.
+  value = value.raw if value.responds_to?(:raw)
+
   case value
-  when Float64
-    if value == value.to_i
-      value.to_i
+  when String
+    # Try to interpret the string as a number so "100", "100.0" and 100 all match.
+    if value =~ /^-?\d+(\.\d+)?$/
+      float_value = value.to_f
+      if float_value == float_value.to_i
+        float_value.to_i.to_s
+      else
+        float_value.to_s
+      end
     else
       value
     end
-  when String
-    value
+  when Int, Float
+    float_value = value.to_f
+    if float_value == float_value.to_i
+      float_value.to_i.to_s
+    else
+      float_value.to_s
+    end
   when Bool
     value.to_s.upcase
   when Nil

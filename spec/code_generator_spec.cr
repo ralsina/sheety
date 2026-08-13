@@ -7,7 +7,7 @@ describe Sheety::CodeGenerator do
       ast = Sheety.parse_to_ast("=42")
       gen = Sheety::CodeGenerator.new
       code = gen.generate(ast)
-      code.should eq("42.0")
+      code.should eq("BigFloat.new(42.0, precision: 64)")
     end
 
     it "generates code for string literals" do
@@ -32,7 +32,7 @@ describe Sheety::CodeGenerator do
       ast = Sheety.parse_to_ast("=1+2")
       gen = Sheety::CodeGenerator.new
       code = gen.generate(ast)
-      code.should contain("+")
+      code.should contain("bin_add")
     end
 
     it "generates code for cell references" do
@@ -211,7 +211,7 @@ describe Sheety::Functions do
 
     it "ROUND rounds numbers" do
       result = Sheety::Functions.round(3.14159, 2.0)
-      result.should eq(3.14)
+      result.should eq(BigFloat.new("3.14"))
     end
 
     it "ABS returns absolute value" do
@@ -348,22 +348,22 @@ describe Sheety::Functions do
 
     it "STDEV calculates sample standard deviation" do
       result = Sheety::Functions.stdev([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0] of Sheety::Functions::CellValue)
-      result.as(Float64).should be_close(2.138, 0.01)
+      result.as(BigFloat).to_f.should be_close(2.138, 0.01)
     end
 
     it "STDEV.P calculates population standard deviation" do
       result = Sheety::Functions.stdev_p([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0] of Sheety::Functions::CellValue)
-      result.as(Float64).should be_close(2.0, 0.01)
+      result.as(BigFloat).to_f.should be_close(2.0, 0.01)
     end
 
     it "VAR.S calculates sample variance" do
       result = Sheety::Functions.var_s([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0] of Sheety::Functions::CellValue)
-      result.as(Float64).should be_close(4.571, 0.01)
+      result.as(BigFloat).to_f.should be_close(4.571, 0.01)
     end
 
     it "VAR.P calculates population variance" do
       result = Sheety::Functions.var_p([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0] of Sheety::Functions::CellValue)
-      result.as(Float64).should be_close(4.0, 0.01)
+      result.as(BigFloat).to_f.should be_close(4.0, 0.01)
     end
   end
 
