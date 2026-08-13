@@ -955,17 +955,19 @@ module Sheety
         end
 
         # Generate the source code (interactive for TUI binary)
-        source_code = generator.generate_source(initial_values, true, source_file, nil)
+        temp_source = File.join(DataDir.path, "tmp", "#{File.basename(source_file, ext)}.cr")
+        chunk_prefix = File.basename(temp_source, File.extname(temp_source))
+        generated = generator.generate_source(initial_values, true, source_file, nil, chunk_prefix)
 
-        if source_code.empty?
+        if generated.entrypoint.empty?
           show_notification("Failed to generate source code", Notification::Level::Error)
           @termisu.render
           return
         end
 
-        # Create a temporary source file
-        temp_source = File.join(DataDir.path, "tmp", "#{File.basename(source_file, ext)}.cr")
-        File.write(temp_source, source_code)
+        # Write the entrypoint and any chunk files (large sheets split the task
+        # table across files to cap compiler memory)
+        CroupierGenerator.write_generated(generated, temp_source)
 
         # Compile the binary with appropriate flags
         # Keep the .sheety extension for the binary
@@ -1002,12 +1004,15 @@ module Sheety
         end
 
         # Generate the source code (non-interactive for standalone code generation)
-        source_code = generator.generate_source(initial_values, true, source_file, nil)
+        chunk_prefix = File.basename(source_file, File.extname(source_file))
+        generated = generator.generate_source(initial_values, true, source_file, nil, chunk_prefix)
 
-        if source_code.empty?
+        if generated.entrypoint.empty?
           show_notification("Failed to generate source code", Notification::Level::Error)
         else
-          File.write(source_file, source_code)
+          # Write the entrypoint and any chunk files (large sheets split the task
+          # table across files next to the user's .cr)
+          CroupierGenerator.write_generated(generated, source_file)
           show_notification("Generated Crystal code: #{source_file}", Notification::Level::Info)
         end
       elsif ext == ".xlsx"

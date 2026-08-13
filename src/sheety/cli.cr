@@ -130,19 +130,21 @@ module Sheety
       end
 
       # Generate Croupier task source code with initial values
-      source_code = generator.generate_source(initial_values, true, filename, intermediate_file)
+      generated = generator.generate_source(initial_values, true, filename, intermediate_file, hash_short)
 
-      if source_code.empty?
+      if generated.entrypoint.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
         exit 1
       end
 
-      # Check if source file already exists
+      # Check if source file already exists (content-hash-derived name, so an
+      # unchanged sheet reuses the cached entrypoint + chunk files)
       if File.exists?(output_cr)
         puts "Using cached source: #{output_cr}"
       else
-        # Write the source file
-        File.write(output_cr, source_code)
+        # Write the entrypoint and any chunk files (large sheets split the task
+        # table across files to cap compiler memory)
+        CroupierGenerator.write_generated(generated, output_cr)
       end
 
       # Check if binary already exists and is newer than source

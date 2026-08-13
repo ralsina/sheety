@@ -21,6 +21,25 @@ module Sheety
       end
     end
 
+    # Result of source generation: the entrypoint source plus any auxiliary
+    # chunk files (filename => content) the entrypoint requires. aux_files is
+    # empty for small sheets; for large sheets the task table is split across
+    # chunk files to keep the Crystal compiler's peak memory low.
+    struct GeneratedSource
+      getter entrypoint : String
+      getter aux_files : Hash(String, String)
+      getter? split : Bool
+
+      def initialize(@entrypoint : String, @aux_files : Hash(String, String) = Hash(String, String).new, @split : Bool = false)
+      end
+    end
+
+    # Above this many formula cells, split the task table across chunk files so
+    # the compiler stays within modest memory. Measured: chunk size 500 caps
+    # peak RSS at ~1.5GB for a 9900-cell sheet (vs ~13.8GB single-file).
+    SPLIT_THRESHOLD = 500
+    CHUNK_SIZE      = 500
+
     @formulas : Hash(String, FormulaInfo)
     @generator : CodeGenerator
     @extractor : DependencyExtractor
@@ -89,9 +108,13 @@ module Sheety
       key.gsub(/[!\/]/, "_")
     end
 
-    # Generate Crystal source code for all tasks
-    # This can be written to a file and compiled
-    def generate_source(initial_values : Hash(String, BigFloat | String | Bool) = Hash(String, BigFloat | String | Bool).new, interactive : Bool = false, source_file : String? = nil, intermediate_file : String? = nil) : String
+    # Generate Crystal source code for all tasks.
+    # Returns a GeneratedSource: the entrypoint program plus, for large sheets,
+    # auxiliary chunk files the entrypoint requires. Callers write the entrypoint
+    # to their chosen path and the aux files into the same directory.
+    # `chunk_prefix` names the chunk files (e.g. "abc123" -> "abc123_tasks_0.cr")
+    # so sheets sharing a tmp dir don't collide; required only when splitting.
+    def generate_source(initial_values : Hash(String, BigFloat | String | Bool) = Hash(String, BigFloat | String | Bool).new, interactive : Bool = false, source_file : String? = nil, intermediate_file : String? = nil, chunk_prefix : String = "sheety") : GeneratedSource
       if interactive
         # For interactive mode, require termisu instead of tablo
         source = %{
@@ -158,11 +181,10 @@ module Sheety
 
       # Then register all formula tasks via a single data-driven loop (one
       # Croupier::Task.new call site) rather than a literal Task.new block per
-      # cell. Emitting N literal blocks made the Crystal compiler run out of
-      # memory on large sheets; the loop form keeps the constructor at a single
-      # call site while the per-cell data collapses to cheap tuple + lambda
-      # literals.
-      source += generate_task_registration
+      # cell. For large sheets the task table is split across chunk files to
+      # keep the Crystal compiler's peak memory low.
+      reg_entrypoint, aux_files, did_split = build_task_registration(chunk_prefix)
+      source += reg_entrypoint
       source += "\n\n"
 
       # Finally, run the tasks and print results
@@ -172,7 +194,18 @@ module Sheety
         source += generate_execution_code(initial_values)
       end
 
-      source
+      GeneratedSource.new(source, aux_files, did_split)
+    end
+
+    # Write a GeneratedSource to disk: the entrypoint to entrypoint_path, and
+    # each aux file into the same directory. The four crystal-build call sites
+    # then compile just the entrypoint (which requires its sibling chunks).
+    def self.write_generated(gen : GeneratedSource, entrypoint_path : String) : Nil
+      File.write(entrypoint_path, gen.entrypoint)
+      dir = File.dirname(entrypoint_path)
+      gen.aux_files.each do |name, content|
+        File.write(File.join(dir, name), content)
+      end
     end
 
     # Generate code to set initial values
@@ -443,27 +476,64 @@ puts ""
       helpers.rstrip('\n') + "\n"
     end
 
-    # Emit a single data-driven registration loop for every formula task,
-    # instead of one literal Croupier::Task.new block per cell. Each task is a
-    # named tuple carrying its id, a Proc(Array(String)) that yields its input
-    # keys, its output key, and a Proc(String) that computes its body. The loop
-    # has exactly one register_formula_task (and thus one Croupier::Task.new)
-    # call site, which is what keeps the compiled program small enough to build
-    # on large sheets.
-    private def generate_task_registration : String
+    # Build the task-registration section. Returns a triple:
+    #   {entrypoint_fragment, aux_files, did_split}
+    # For small sheets (<= SPLIT_THRESHOLD formulas) the fragment is the full
+    # inline table + loop and aux_files is empty. For large sheets the table is
+    # partitioned into chunk files (one TASKS_N = [...] constant each), the
+    # fragment requires them and concatenates their constants, and aux_files
+    # maps each chunk filename to its content. Either way there is exactly one
+    # register_formula_task (and thus one Croupier::Task.new) call site.
+    private def build_task_registration(chunk_prefix : String) : {String, Hash(String, String), Bool}
       entries = @formulas.map { |_, info| task_entry_source(info) }
 
-      return "" if entries.empty?
+      return {"", Hash(String, String).new, false} if entries.empty?
 
-      String.build do |io|
-        io << "# Formula task registration (data-driven loop)\n"
-        io << "formula_tasks = [\n"
-        entries.each { |entry| io << entry }
-        io << "]\n"
+      loop_body = String.build do |io|
         io << "formula_tasks.each do |task|\n"
         io << "  register_formula_task(task[:id], task[:inputs].call, task[:output], &task[:body])\n"
         io << "end\n"
       end
+
+      # Small sheet: inline the whole table in the entrypoint.
+      unless @formulas.size > SPLIT_THRESHOLD
+        fragment = String.build do |io|
+          io << "# Formula task registration (data-driven loop)\n"
+          io << "formula_tasks = [\n"
+          entries.each { |entry| io << entry }
+          io << "]\n"
+          io << loop_body
+        end
+        return {fragment, Hash(String, String).new, false}
+      end
+
+      # Large sheet: split the table across chunk files. Each chunk defines a
+      # module-level TASKS_N constant; the entrypoint requires them and
+      # concatenates into formula_tasks. Splitting lets the compiler retire
+      # per-file structures during semantic analysis, capping peak memory.
+      aux_files = Hash(String, String).new
+      requires = [] of String
+      concats = [] of String
+
+      entries.each_slice(CHUNK_SIZE).with_index do |slice, index|
+        filename = "#{chunk_prefix}_tasks_#{index}.cr"
+        aux_files[filename] = String.build do |io|
+          io << "TASKS_#{index} = [\n"
+          slice.each { |entry| io << entry }
+          io << "]\n"
+        end
+        requires << %(require "./#{chunk_prefix}_tasks_#{index}")
+        concats << %(formula_tasks.concat(TASKS_#{index}))
+      end
+
+      fragment = String.build do |io|
+        io << "# Formula task registration (data-driven loop, split across #{aux_files.size} chunk files)\n"
+        io << "formula_tasks = [] of NamedTuple(id: String, inputs: Proc(Array(String)), output: String, body: Proc(String))\n"
+        requires.each { |require_line| io << require_line << "\n" }
+        concats.each { |concat_line| io << concat_line << "\n" }
+        io << loop_body
+      end
+      {fragment, aux_files, true}
     end
 
     # Build the source for one entry in the formula_tasks table. Mirrors the

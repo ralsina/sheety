@@ -248,7 +248,7 @@ describe Sheety::CroupierGenerator do
     it "generates Crystal source code" do
       gen = Sheety::CroupierGenerator.new
       gen.add_formula("C1", "=SUM(A1:A5)")
-      source = gen.generate_source
+      source = gen.generate_source.entrypoint
       source.should contain("require \"croupier\"")
       # Tasks are registered through a single helper call site, not literal
       # Croupier::Task.new blocks (which OOM'd the compiler on large sheets).
@@ -262,7 +262,7 @@ describe Sheety::CroupierGenerator do
       gen.add_formula("D3", "=B3*C3", "Sheet1")
       gen.add_formula("D4", "=B4*C4", "Sheet1")
       gen.add_formula("D5", "=B5*C5", "Sheet1")
-      source = gen.generate_source
+      source = gen.generate_source.entrypoint
 
       # The only Croupier::Task.new is the one inside register_formula_task
       # (in croupier_helpers.cr, required by the generated source). The
@@ -275,7 +275,7 @@ describe Sheety::CroupierGenerator do
     it "generates source with dependencies" do
       gen = Sheety::CroupierGenerator.new
       gen.add_formula("C1", "=A1+B1")
-      source = gen.generate_source
+      source = gen.generate_source.entrypoint
       source.should contain("\"A1\"")
       source.should contain("\"B1\"")
     end
@@ -285,7 +285,7 @@ describe Sheety::CroupierGenerator do
       gen.add_formula("D2", "=B2*C2", "Sheet1")
       gen.add_formula("D3", "=B3*C3", "Sheet1")
       gen.add_formula("D4", "=B4*C4", "Sheet1")
-      source = gen.generate_source
+      source = gen.generate_source.entrypoint
 
       # Exactly one helper definition for the repeated shape.
       shape_defs = source.scan("def calc_shape_").size
@@ -301,7 +301,7 @@ describe Sheety::CroupierGenerator do
       gen = Sheety::CroupierGenerator.new
       gen.add_formula("D2", "=B2*C2", "Sheet1")
       gen.add_formula("E2", "=B2+C2", "Sheet1")
-      source = gen.generate_source
+      source = gen.generate_source.entrypoint
 
       shape_defs = source.scan("def calc_shape_").size
       shape_defs.should eq(2)
@@ -311,7 +311,7 @@ describe Sheety::CroupierGenerator do
       gen = Sheety::CroupierGenerator.new
       gen.add_formula("D2", "=B2*C2", "Sheet1")
       gen.add_formula("D3", "=B3*C3", "Sheet1")
-      source = gen.generate_source
+      source = gen.generate_source.entrypoint
 
       # Each cell still gets its own entry with correct id, inputs, and output.
       source.should contain(%(id: "formula_Sheet1_D2"))
@@ -320,6 +320,45 @@ describe Sheety::CroupierGenerator do
       source.should contain(%(["kv://Sheet1!B3", "kv://Sheet1!C3"] of String))
       source.should contain(%(output: "kv://Sheet1!D2"))
       source.should contain(%(output: "kv://Sheet1!D3"))
+    end
+
+    it "does not split small sheets (inline single file)" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D2", "=B2*C2", "Sheet1")
+      gen.add_formula("D3", "=B3*C3", "Sheet1")
+      generated = gen.generate_source
+
+      generated.split?.should be_false
+      generated.aux_files.should be_empty
+      # The full table is inlined in the entrypoint.
+      generated.entrypoint.should contain("formula_tasks = [")
+    end
+
+    it "splits large sheets across chunk files" do
+      gen = Sheety::CroupierGenerator.new
+      # Exceed SPLIT_THRESHOLD (500) to trigger splitting.
+      (2..550).each { |row| gen.add_formula("A#{row}", "=A#{row - 1}+1", "Sheet1") }
+      generated = gen.generate_source(chunk_prefix: "testchunk")
+
+      generated.split?.should be_true
+      # Two chunk files: 500 + 50 entries.
+      generated.aux_files.size.should eq(2)
+      generated.aux_files.has_key?("testchunk_tasks_0.cr").should be_true
+      generated.aux_files.has_key?("testchunk_tasks_1.cr").should be_true
+
+      # The entrypoint requires the chunks and concatenates their constants.
+      generated.entrypoint.should contain(%(require "./testchunk_tasks_0"))
+      generated.entrypoint.should contain(%(require "./testchunk_tasks_1"))
+      generated.entrypoint.should contain("formula_tasks.concat(TASKS_0)")
+      generated.entrypoint.should contain("formula_tasks.concat(TASKS_1)")
+
+      # Each chunk defines its TASKS_N constant.
+      generated.aux_files["testchunk_tasks_0.cr"].should contain("TASKS_0 = [")
+      generated.aux_files["testchunk_tasks_1.cr"].should contain("TASKS_1 = [")
+
+      # Total task entries across chunks equals the formula count (549).
+      total_entries = generated.aux_files.values.sum(&.scan("{id:").size)
+      total_entries.should eq(549)
     end
   end
 end

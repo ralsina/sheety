@@ -99,15 +99,16 @@ module Sheety
 
       # Generate Croupier task source code with initial values (non-interactive for rebuild)
       # Use intermediate_file as the source file so the TUI reads from the updated file
-      source_code = generator.generate_source(initial_values, true, intermediate_file, nil)
+      generated = generator.generate_source(initial_values, true, intermediate_file, nil, hash_short)
 
-      if source_code.empty?
+      if generated.entrypoint.empty?
         STDERR.puts "Error: Failed to generate source code - output is empty"
         return nil
       end
 
-      # Write the source file
-      File.write(output_cr, source_code)
+      # Write the entrypoint and any chunk files (large sheets split the task
+      # table across files to cap compiler memory)
+      CroupierGenerator.write_generated(generated, output_cr)
 
       # Build the binary
       build_result = Process.run("crystal", ["build", "-Dpreview_mt", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)

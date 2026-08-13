@@ -328,22 +328,27 @@ module Sheety
         end
       end
 
-      # Generate source code
-      source_code = generator.generate_source(initial_values, true, source_file || file_path, nil)
+      # Generate source code (entrypoint + optional chunk files for large sheets)
+      chunk_prefix = File.basename(file_path, File.extname(file_path))
+      generated = generator.generate_source(initial_values, true, source_file || file_path, nil, chunk_prefix)
 
-      if source_code.empty?
+      if generated.entrypoint.empty?
         raise "Failed to generate source code"
       end
 
-      File.write(file_path, source_code)
+      CroupierGenerator.write_generated(generated, file_path)
 
-      # Format the generated Crystal file
-      format_result = Process.run("crystal", ["tool", "format", file_path],
-        output: Process::Redirect::Inherit,
-        error: Process::Redirect::Inherit)
-
-      unless format_result.success?
-        STDERR.puts "Warning: Failed to format generated Crystal file"
+      # Format the generated Crystal files (entrypoint + any chunk files)
+      dir = File.dirname(file_path)
+      files_to_format = [file_path]
+      generated.aux_files.each_key { |name| files_to_format << File.join(dir, name) }
+      files_to_format.each do |path|
+        format_result = Process.run("crystal", ["tool", "format", path],
+          output: Process::Redirect::Inherit,
+          error: Process::Redirect::Inherit)
+        unless format_result.success?
+          STDERR.puts "Warning: Failed to format generated Crystal file #{path}"
+        end
       end
     end
 
@@ -377,17 +382,17 @@ module Sheety
         end
       end
 
-      # Generate source code
+      # Generate source code (entrypoint + optional chunk files for large sheets)
       source_file_for_binary = source_file || file_path
-      source_code = generator.generate_source(initial_values, true, source_file_for_binary, nil)
+      temp_source = File.join(DataDir.path, "tmp", "#{File.basename(file_path, File.extname(file_path))}.cr")
+      chunk_prefix = File.basename(temp_source, File.extname(temp_source))
+      generated = generator.generate_source(initial_values, true, source_file_for_binary, nil, chunk_prefix)
 
-      if source_code.empty?
+      if generated.entrypoint.empty?
         raise "Failed to generate source code"
       end
 
-      # Compile
-      temp_source = File.join(DataDir.path, "tmp", "#{File.basename(file_path, File.extname(file_path))}.cr")
-      File.write(temp_source, source_code)
+      CroupierGenerator.write_generated(generated, temp_source)
 
       compile_result = Process.run("crystal", ["build", "-Dpreview_mt", "-Dno_embedded_files", temp_source, "-o", file_path],
         output: Process::Redirect::Inherit,
