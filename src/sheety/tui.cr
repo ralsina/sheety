@@ -949,16 +949,7 @@ module Sheety
 
             # Add value as initial value (for all cells, with or without formulas)
             if cell_data.has_key?("value")
-              value = cell_data["value"]
-              # Convert ErrorValue and Nil to appropriate types
-              case value
-              when Sheety::Functions::ErrorValue
-                initial_values[key] = value.to_s
-              when Nil
-                initial_values[key] = ""
-              else
-                initial_values[key] = value
-              end
+              initial_values[key] = coerce_to_initial_value(cell_data["value"])
             end
           end
         end
@@ -1005,15 +996,7 @@ module Sheety
 
             # Add value as initial value
             if cell_data.has_key?("value")
-              value = cell_data["value"]
-              case value
-              when Sheety::Functions::ErrorValue
-                initial_values[key] = value.to_s
-              when Nil
-                initial_values[key] = ""
-              else
-                initial_values[key] = value
-              end
+              initial_values[key] = coerce_to_initial_value(cell_data["value"])
             end
           end
         end
@@ -1047,6 +1030,25 @@ module Sheety
       end
 
       @termisu.render
+    end
+
+    # Coerce a runtime cell value into the (BigFloat | String | Bool) union that
+    # CroupierGenerator#generate_source expects for initial values. ErrorValue
+    # and Nil become their string forms; Float64 is promoted to BigFloat to
+    # match how numeric cells are normalized elsewhere.
+    private def coerce_to_initial_value(value : Sheety::Functions::CellValue) : BigFloat | String | Bool
+      case value
+      when Sheety::Functions::ErrorValue
+        value.to_s
+      when Nil
+        ""
+      when Float64
+        BigFloat.new(value, precision: 64)
+      when BigFloat, String, Bool
+        value
+      else
+        value.to_s
+      end
     end
 
     private def internal_format_to_yaml_structure(internal_format : Hash(String, Hash(String, Hash(String, Sheety::Functions::CellValue)))) : Hash(YAML::Any, YAML::Any)
