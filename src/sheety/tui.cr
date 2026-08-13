@@ -973,7 +973,7 @@ module Sheety
         # Keep the .sheety extension for the binary
         binary_name = source_file
 
-        compile_result = Process.run("crystal", ["build", "-Dpreview_mt", "-Dno_embedded_files", temp_source, "-o", binary_name],
+        compile_result = Process.run("crystal", ["build", "-Dno_embedded_files", temp_source, "-o", binary_name],
           output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
         if compile_result.success?

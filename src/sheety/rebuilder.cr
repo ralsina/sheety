@@ -111,7 +111,7 @@ module Sheety
       CroupierGenerator.write_generated(generated, output_cr)
 
       # Build the binary
-      build_result = Process.run("crystal", ["build", "-Dpreview_mt", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
       unless build_result.success?
         STDERR.puts "\nError: Build failed"

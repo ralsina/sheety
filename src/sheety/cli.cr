@@ -154,7 +154,7 @@ module Sheety
       else
         # Build the binary
         puts "Building #{binary_name}..."
-        build_result = Process.run("crystal", ["build", "-Dpreview_mt", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+        build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
       end
 
       unless build_result.success?

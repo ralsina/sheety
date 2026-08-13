@@ -394,7 +394,7 @@ module Sheety
 
       CroupierGenerator.write_generated(generated, temp_source)
 
-      compile_result = Process.run("crystal", ["build", "-Dpreview_mt", "-Dno_embedded_files", temp_source, "-o", file_path],
+      compile_result = Process.run("crystal", ["build", "-Dno_embedded_files", temp_source, "-o", file_path],
         output: Process::Redirect::Inherit,
         error: Process::Redirect::Inherit)
 
