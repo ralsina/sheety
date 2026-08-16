@@ -113,9 +113,10 @@ module Sheety
           dependencies:
             croupier:
               github: ralsina/croupier
-              branch: main
+              commit: 7af5913371850826990654804df86cf048dfddb2
             termisu:
               github: omarluq/termisu
+              version: ~> 0.6.2
           YAML
 
         File.write(shard_path, shard_content)

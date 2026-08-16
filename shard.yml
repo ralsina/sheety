@@ -15,15 +15,17 @@ targets:
 dependencies:
   croupier:
     github: ralsina/croupier
-    branch: main
+    # no release tags past 0.9.x; pin the exact commit for reproducibility
+    commit: 7af5913371850826990654804df86cf048dfddb2
   tablo:
     github: hutou/tablo
+    version: ~> 1.1.0
   termisu:
     github: omarluq/termisu
+    version: ~> 0.6.2
   xlsx-parser:
     github: d1ceward/xlsx-parser
     version: ~> 1.4
-  crystal_xlsx:
-    github: confact/crystal_xlsx
   baked_file_system:
     github: ralsina/baked_file_system
+    commit: beb373124c7a235cfb9cd94e36849d8168eaa04b
