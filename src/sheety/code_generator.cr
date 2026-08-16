@@ -20,13 +20,24 @@ module Sheety
       property? parameterized : Bool
       # Counter for the next parameter index, used in parameterized mode.
       property param_index : Int32
+      # While visiting the table argument of a lookup function (see
+      # TABLE_ARG_POSITIONS), so RangeRef renders as a 2D matrix fetch.
+      property table_arg : Bool
 
       def initialize(@sheet : String? = nil)
         @cells = Hash(String, BigFloat | String | Bool).new
         @parameterized = false
         @param_index = 0
+        @table_arg = false
       end
     end
+
+    # Functions that treat one of their arguments as a 2D table (rows and
+    # columns of cells) rather than a flat list of values, mapped to the
+    # 0-based positions of those arguments. Only direct range references
+    # qualify: anything else (a nested expression, an array constant) can't
+    # provide the 2D shape the registry functions expect.
+    TABLE_ARG_POSITIONS = {"VLOOKUP" => [1], "HLOOKUP" => [1], "INDEX" => [0]}
 
     # Generate Crystal code for an AST node
     def generate(node : Node, context : Context = Context.new) : String
@@ -66,10 +77,11 @@ module Sheety
       when :cell, :named
         key = param.sheet ? "#{param.sheet}!#{param.reference}" : param.reference
         "fetch_cell(#{key.inspect})"
-      when :range
+      when :range, :range2d
         if match = param.reference.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/)
           sheet = param.sheet
-          "fetch_cell_range(#{sheet.inspect}, #{match[1].inspect}, #{match[2]}, #{match[3].inspect}, #{match[4]})"
+          helper = param.kind == :range2d ? "fetch_cell_range_2d" : "fetch_cell_range"
+          "#{helper}(#{sheet.inspect}, #{match[1].inspect}, #{match[2]}, #{match[3].inspect}, #{match[4]})"
         else
           "[]"
         end
@@ -81,7 +93,14 @@ module Sheety
     # The Crystal parameter declaration (name + type) for a reference parameter,
     # used in the shared helper's signature.
     def param_declaration(param : ReferenceParam, index : Int32) : String
-      type = param.kind == :range ? "Array(Sheety::Functions::CellValue)" : "Sheety::Functions::CellValue"
+      type = case param.kind
+             when :range
+               "Array(Sheety::Functions::CellValue)"
+             when :range2d
+               "Array(Array(Sheety::Functions::CellValue))"
+             else
+               "Sheety::Functions::CellValue"
+             end
       "p#{index} : #{type}"
     end
 
@@ -138,8 +157,12 @@ module Sheety
         end_col = match[3]
         end_row = match[4]
 
+        # Table arguments (VLOOKUP et al.) fetch the range as a 2D matrix;
+        # every other range fetches a flat, row-major array.
+        helper = context.table_arg ? "fetch_cell_range_2d" : "fetch_cell_range"
+
         # Generate call to helper function
-        "fetch_cell_range(#{sheet.inspect}, #{start_col.inspect}, #{start_row}, #{end_col.inspect}, #{end_row})"
+        "#{helper}(#{sheet.inspect}, #{start_col.inspect}, #{start_row}, #{end_col.inspect}, #{end_row})"
       else
         "[]"
       end
@@ -209,9 +232,32 @@ module Sheety
       end
     end
 
+    # Whether the given 0-based argument position of a function call is a 2D
+    # table argument backed by a direct range reference.
+    private def table_arg?(func_name : String, index : Int32, arg : Node?) : Bool
+      return false unless arg.is_a?(RangeRef)
+      positions = TABLE_ARG_POSITIONS[func_name]?
+      positions ? positions.includes?(index) : false
+    end
+
+    # Whether an argument node will be emitted as an array value (a range
+    # reference or an array constant), as required by the range parameters
+    # of COUNTIF/SUMIF.
+    private def array_like?(arg : Node?) : Bool
+      arg.is_a?(RangeRef) || arg.is_a?(ArrayConstant)
+    end
+
+    private def value_error : String
+      "Sheety::Functions::ErrorValue.new(\"#VALUE!\")"
+    end
+
     private def visit(node : FunctionCall, context : Context) : String
       func_name = node.function_name.upcase
-      args = node.arguments.map { |arg| visit(arg, context) }
+      args = node.arguments.map_with_index do |arg, index|
+        context.table_arg = table_arg?(func_name, index, arg)
+        visit(arg, context)
+      end
+      context.table_arg = false
 
       case func_name
       when "SUM"
@@ -224,6 +270,18 @@ module Sheety
         "Sheety::Functions.max(#{args.join(", ")})"
       when "COUNT"
         "Sheety::Functions.count(#{args.join(", ")})"
+      when "COUNTA"
+        "Sheety::Functions.counta(Sheety::Functions.flatten(#{args.join(", ")}))"
+      when "MEDIAN"
+        "Sheety::Functions.median(Sheety::Functions.flatten(#{args.join(", ")}))"
+      when "STDEV", "STDEV.S"
+        "Sheety::Functions.stdev(Sheety::Functions.flatten(#{args.join(", ")}))"
+      when "STDEV.P"
+        "Sheety::Functions.stdev_p(Sheety::Functions.flatten(#{args.join(", ")}))"
+      when "VAR.S"
+        "Sheety::Functions.var_s(Sheety::Functions.flatten(#{args.join(", ")}))"
+      when "VAR.P"
+        "Sheety::Functions.var_p(Sheety::Functions.flatten(#{args.join(", ")}))"
       when "ROUND"
         "Sheety::Functions.round(#{args.join(", ")})"
       when "ABS"
@@ -236,20 +294,47 @@ module Sheety
         "Sheety::Functions.mod(#{args.join(", ")})"
       when "INT"
         "Sheety::Functions.int(#{args[0]})"
+      when "CEILING"
+        "Sheety::Functions.ceiling(#{args.join(", ")})"
+      when "FLOOR"
+        "Sheety::Functions.floor(#{args.join(", ")})"
+      when "ROUNDUP"
+        "Sheety::Functions.roundup(#{args.join(", ")})"
+      when "ROUNDDOWN"
+        "Sheety::Functions.rounddown(#{args.join(", ")})"
+      when "RAND"
+        "Sheety::Functions.rand"
+      when "RANDBETWEEN"
+        "Sheety::Functions.randbetween(#{args.join(", ")})"
       when "IF"
         if args.size >= 3
           "Sheety::Functions.if(#{args[0]}, #{args[1]}, #{args[2]})"
         else
-          "Sheety::Functions::ErrorValue.new(\"#VALUE!\")"
+          value_error
+        end
+      when "IFS"
+        # Odd argument counts are rejected (as #VALUE!) by the registry.
+        "Sheety::Functions.ifs(Sheety::Functions.flatten(#{args.join(", ")}))"
+      when "SWITCH"
+        if args.size >= 3
+          rest = args[1..]
+          if rest.size.odd?
+            # Odd remainder: the last argument is the default value.
+            "Sheety::Functions.switch_func(#{args[0]}, Sheety::Functions.flatten(#{rest[0...-1].join(", ")}), #{rest.last})"
+          else
+            "Sheety::Functions.switch_func(#{args[0]}, Sheety::Functions.flatten(#{rest.join(", ")}))"
+          end
+        else
+          value_error
         end
       when "AND"
-        "Sheety::Functions.and([#{args.join(", ")}])"
+        "Sheety::Functions.and(Sheety::Functions.flatten(#{args.join(", ")}))"
       when "OR"
-        "Sheety::Functions.or([#{args.join(", ")}])"
+        "Sheety::Functions.or(Sheety::Functions.flatten(#{args.join(", ")}))"
       when "NOT"
         "Sheety::Functions.not(#{args[0]})"
       when "CONCAT", "CONCATENATE"
-        "Sheety::Functions.concat([#{args.join(", ")}])"
+        "Sheety::Functions.concat(Sheety::Functions.flatten(#{args.join(", ")}))"
       when "LEFT"
         "Sheety::Functions.left(#{args.join(", ")})"
       when "RIGHT"
@@ -258,7 +343,7 @@ module Sheety
         if args.size >= 3
           "Sheety::Functions.mid(#{args.join(", ")})"
         else
-          "Sheety::Functions::ErrorValue.new(\"#VALUE!\")"
+          value_error
         end
       when "LEN"
         "Sheety::Functions.len(#{args[0]})"
@@ -268,6 +353,68 @@ module Sheety
         "Sheety::Functions.lower(#{args[0]})"
       when "TRIM"
         "Sheety::Functions.trim(#{args[0]})"
+      when "PROPER"
+        "Sheety::Functions.proper(#{args[0]})"
+      when "CLEAN"
+        "Sheety::Functions.clean(#{args[0]})"
+      when "EXACT"
+        "Sheety::Functions.exact(#{args.join(", ")})"
+      when "REPT"
+        "Sheety::Functions.rept(#{args.join(", ")})"
+      when "FIND"
+        "Sheety::Functions.find(#{args.join(", ")})"
+      when "SEARCH"
+        "Sheety::Functions.search(#{args.join(", ")})"
+      when "SUBSTITUTE"
+        "Sheety::Functions.substitute(#{args.join(", ")})"
+      when "TEXT"
+        "Sheety::Functions.text_func(#{args.join(", ")})"
+      when "VALUE"
+        "Sheety::Functions.value_func(#{args[0]})"
+      when "TODAY"
+        "Sheety::Functions.today"
+      when "NOW"
+        "Sheety::Functions.now"
+      when "YEAR"
+        "Sheety::Functions.year(#{args[0]})"
+      when "MONTH"
+        "Sheety::Functions.month(#{args[0]})"
+      when "DAY"
+        "Sheety::Functions.day(#{args[0]})"
+      when "DATEDIF"
+        "Sheety::Functions.datedif(#{args.join(", ")})"
+      when "EOMONTH"
+        "Sheety::Functions.eomonth(#{args.join(", ")})"
+      when "COUNTIF"
+        if args.size == 2 && array_like?(node.arguments[0]?)
+          "Sheety::Functions.countif(#{args.join(", ")})"
+        else
+          value_error
+        end
+      when "SUMIF"
+        if (2..3).includes?(args.size) && array_like?(node.arguments[0]?) && (args.size == 2 || array_like?(node.arguments[2]?))
+          "Sheety::Functions.sumif(#{args.join(", ")})"
+        else
+          value_error
+        end
+      when "VLOOKUP"
+        if (3..4).includes?(args.size) && table_arg?(func_name, 1, node.arguments[1]?)
+          "Sheety::Functions.vlookup(#{args.join(", ")})"
+        else
+          value_error
+        end
+      when "HLOOKUP"
+        if (3..4).includes?(args.size) && table_arg?(func_name, 1, node.arguments[1]?)
+          "Sheety::Functions.hlookup(#{args.join(", ")})"
+        else
+          value_error
+        end
+      when "INDEX"
+        if (2..3).includes?(args.size) && table_arg?(func_name, 0, node.arguments[0]?)
+          "Sheety::Functions.index_func(#{args.join(", ")})"
+        else
+          value_error
+        end
       else
         # Unknown function
         "Sheety::Functions::ErrorValue.new(\"#NAME?\")"
@@ -312,64 +459,31 @@ module Sheety
     end
 
     # Collect reference leaves in left-to-right depth-first order, matching the
-    # order the parameterized generator assigns parameter indices.
-    private def collect_references(node : Node, params : Array(ReferenceParam), sheet : String?) : Nil
+    # order the parameterized generator assigns parameter indices. `table_arg`
+    # marks the subtree of a lookup function's table argument so its ranges
+    # are declared as 2D parameters.
+    private def collect_references(node : Node, params : Array(ReferenceParam), sheet : String?, table_arg : Bool = false) : Nil
       case node
       when CellRef
         params << ReferenceParam.new(:cell, node.reference.upcase, node.sheet || sheet)
       when RangeRef
-        params << ReferenceParam.new(:range, node.range.upcase, node.sheet || sheet)
+        params << ReferenceParam.new(table_arg ? :range2d : :range, node.range.upcase, node.sheet || sheet)
       when NamedRef
         params << ReferenceParam.new(:named, node.name, nil)
       when UnaryOp
-        collect_references(node.operand, params, sheet)
+        collect_references(node.operand, params, sheet, table_arg)
       when BinaryOp
-        collect_references(node.left, params, sheet)
-        collect_references(node.right, params, sheet)
+        collect_references(node.left, params, sheet, table_arg)
+        collect_references(node.right, params, sheet, table_arg)
       when FunctionCall
-        node.arguments.each { |arg| collect_references(arg, params, sheet) }
+        func_name = node.function_name.upcase
+        node.arguments.each_with_index do |arg, index|
+          collect_references(arg, params, sheet, table_arg?(func_name, index, arg))
+        end
       when ArrayConstant
-        node.elements.each { |elem| collect_references(elem, params, sheet) }
+        node.elements.each { |elem| collect_references(elem, params, sheet, table_arg) }
       end
       # Literals (Number, StringLiteral, Boolean, ErrorValue) contribute no params.
-    end
-
-    # Helper to expand a range like "A1:B2" into cell references
-    private def expand_range(start_col : String, start_row : Int32, end_col : String, end_row : Int32, sheet : String?) : Array(String)
-      result = [] of String
-
-      # Convert column letters to numbers
-      start_col_num = column_to_number(start_col)
-      end_col_num = column_to_number(end_col)
-
-      # Iterate through rows and columns
-      (start_row..end_row).each do |row|
-        (start_col_num..end_col_num).each do |col|
-          col_str = number_to_column(col)
-          ref = sheet ? "#{sheet}!#{col_str}#{row}" : "#{col_str}#{row}"
-          result << ref
-        end
-      end
-
-      result
-    end
-
-    # Convert column letter(s) to number (A=1, Z=26, AA=27, etc.)
-    private def column_to_number(col : String) : Int32
-      num = 0
-      col.each_char { |char| num = num * 26 + (char.ord - 'A'.ord + 1) }
-      num
-    end
-
-    # Convert column number to letter(s) (1=A, 26=Z, 27=AA, etc.)
-    private def number_to_column(num : Int32) : String
-      result = ""
-      while num > 0
-        num -= 1
-        result = ('A' + (num % 26)).to_s + result
-        num //= 26
-      end
-      result
     end
   end
 end

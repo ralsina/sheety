@@ -227,9 +227,10 @@ module Sheety
 
         # Find range references directly in the calc code
         calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
-        if calc_code.includes?("fetch_cell_range(")
-          # Extract all range parameters (not just the first one)
-          calc_code.scan(/fetch_cell_range\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/) do |match|
+        if calc_code.includes?("fetch_cell_range") # also matches fetch_cell_range_2d
+          # Extract all range parameters (not just the first one); both
+          # helpers take identical arguments, so one pattern covers them.
+          calc_code.scan(/fetch_cell_range(?:_2d)?\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/) do |match|
             ranges << {
               sheet:     match[1],
               start_col: match[2],
@@ -341,16 +342,8 @@ puts ""
 
 #{sheet_collection_code}
 
-# Helper function to convert column number to letters
-def col_num_to_letter(num)
-  result = ""
-  while num > 0
-    num -= 1
-    result = ('A' + (num % 26)).to_s + result
-    num //= 26
-  end
-  result
-end
+# Helper functions are provided by Sheety::CellRefs (required via
+# croupier_helpers) for column letter <-> number conversion.
 
 def print_sheet(data, sheet_name)
   # Find the grid dimensions
@@ -363,8 +356,7 @@ def print_sheet(data, sheet_name)
       row = match[2].to_i
 
       # Convert column to number for comparison
-      col_num = 0
-      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
+      col_num = Sheety::CellRefs.col_to_num(col)
 
       max_col = col_num if col_num > max_col
       max_row = row if row > max_row
@@ -381,8 +373,7 @@ def print_sheet(data, sheet_name)
       row = match[2].to_i - 1  # Convert to 0-indexed
 
       # Convert column to number
-      col_num = 0
-      col.each_char { |c| col_num = col_num * 26 + (c.ord - 'A'.ord + 1) }
+      col_num = Sheety::CellRefs.col_to_num(col)
 
       value = cell[:value]
       formula = cell[:formula]
@@ -395,7 +386,7 @@ def print_sheet(data, sheet_name)
   end
 
   # Build column headers (A, B, C, ...)
-  column_headers = (1..max_col).map { |i| col_num_to_letter(i) }
+  column_headers = (1..max_col).map { |i| Sheety::CellRefs.num_to_col(i) }
 
   # Build table data with row numbers
   table_data = (0...max_row).map do |row_idx|
@@ -559,7 +550,9 @@ puts ""
       calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
 
       # Build the inputs array expression - use range helpers when ranges appear
-      range_matches = calc_code.scan(/fetch_cell_range\(([^)]+)\)/).map(&.[1])
+      # (both fetch_cell_range and fetch_cell_range_2d share the same argument
+      # list, so one pattern catches either helper)
+      range_matches = calc_code.scan(/fetch_cell_range(?:_2d)?\(([^)]+)\)/).map(&.[1])
 
       inputs_expr = if !range_matches.empty?
                       # Multiple ranges - combine them with + operator

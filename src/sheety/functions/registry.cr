@@ -187,6 +187,28 @@ module Sheety
 
     # Math functions
 
+    # Flatten mixed arguments into a single array of cell values: scalars
+    # are appended, arrays are concatenated. Used by the code generator for
+    # functions that conceptually take a flat list of values but may receive
+    # any mix of cell references and ranges (AND, OR, CONCAT, IFS, MEDIAN,
+    # STDEV, ...). Mirrors the argument handling of the sum overloads.
+    def self.flatten(*values : CellValue | Array(CellValue)) : Array(CellValue)
+      result = Array(CellValue).new
+      values.each do |value|
+        if value.is_a?(Array)
+          result.concat(value)
+        else
+          result << value
+        end
+      end
+      result
+    end
+
+    # Zero-argument overload so degenerate formulas like =AND() still compile.
+    def self.flatten : Array(CellValue)
+      [] of CellValue
+    end
+
     # SUM: Adds all numbers - generic version that handles mixed types
     private def self.sum_impl(*args : CellValue | Array(CellValue)) : BigFloat
       all_numbers = Array(BigFloat).new
@@ -1175,7 +1197,7 @@ module Sheety
     end
 
     # INDEX: Returns value from array at given position
-    def self.index_func(array : Array(Array(CellValue)), row_num : CellValue, column_num : CellValue) : CellValue
+    def self.index_func(array : Array(Array(CellValue)), row_num : CellValue, column_num : CellValue = 1.0) : CellValue
       row = to_float(row_num)
       col = to_float(column_num)
       return value if row.nil? || col.nil? || row < 1 || col < 1

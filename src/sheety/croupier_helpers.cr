@@ -1,4 +1,5 @@
 require "big"
+require "./cell_refs"
 
 module Sheety
   # Helper functions for generated spreadsheet binaries
@@ -11,68 +12,53 @@ module Sheety
       Croupier::TaskManager.get(cell_ref) || ""
     end
 
-    # Fetch a range of cells (e.g., "Sheet1!A1:A100")
+    # Fetch a range of cells (e.g., "Sheet1!A1:A100") as a flat,
+    # row-major array of values.
     def fetch_cell_range(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(String)
-      # Convert column letters to numbers
-      col_num = ->(col : String) {
-        num = 0
-        col.each_char { |char| num = num * 26 + (char.ord - 'A'.ord + 1) }
-        num
-      }
-
-      # Convert column numbers to letters
-      num_to_col = ->(num : Int32) {
-        result = ""
-        while num > 0
-          num -= 1
-          result = ('A' + (num % 26)).to_s + result
-          num //= 26
-        end
-        result
-      }
-
-      start_col_num = col_num.call(start_col)
-      end_col_num = col_num.call(end_col)
+      start_col_num = CellRefs.col_to_num(start_col)
+      end_col_num = CellRefs.col_to_num(end_col)
 
       # Build array of cell references and fetch values
       result = [] of String
       (start_row..end_row).each do |row|
         (start_col_num..end_col_num).each do |col|
-          col_str = num_to_col.call(col)
+          col_str = CellRefs.num_to_col(col)
           result << fetch_cell(sheet + "!" + col_str + row.to_s)
         end
       end
       result
     end
 
+    # Fetch a range of cells as a 2D table (one Array of values per row),
+    # for functions that take a table argument (VLOOKUP, HLOOKUP, INDEX).
+    # Takes the same arguments as fetch_cell_range so the generator's range
+    # scanning treats both helpers uniformly.
+    def fetch_cell_range_2d(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(Array(String))
+      start_col_num = CellRefs.col_to_num(start_col)
+      end_col_num = CellRefs.col_to_num(end_col)
+
+      result = [] of Array(String)
+      (start_row..end_row).each do |row|
+        current_row = [] of String
+        (start_col_num..end_col_num).each do |col|
+          col_str = CellRefs.num_to_col(col)
+          current_row << fetch_cell(sheet + "!" + col_str + row.to_s)
+        end
+        result << current_row
+      end
+      result
+    end
+
     # Generate k/v store input keys for a range
     def range_inputs(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(String)
-      # Convert column letters to numbers
-      col_num = ->(col : String) {
-        num = 0
-        col.each_char { |char| num = num * 26 + (char.ord - 'A'.ord + 1) }
-        num
-      }
-
-      # Convert column numbers to letters
-      num_to_col = ->(num : Int32) {
-        result = ""
-        while num > 0
-          num -= 1
-          result = ('A' + (num % 26)).to_s + result
-          num //= 26
-        end
-        result
-      }
-
-      start_col_num = col_num.call(start_col)
-      end_col_num = col_num.call(end_col)
+      start_col_num = CellRefs.col_to_num(start_col)
+      end_col_num = CellRefs.col_to_num(end_col)
 
       # Build array of k/v store keys
       result = [] of String
       (start_row..end_row).each do |row|
         (start_col_num..end_col_num).each do |col|
-          col_str = num_to_col.call(col)
+          col_str = CellRefs.num_to_col(col)
           result << "kv://" + sheet + "!" + col_str + row.to_s
         end
       end
@@ -91,7 +77,7 @@ module Sheety
       when String
         result
       when Bool
-        result.upcase.to_s
+        result ? "TRUE" : "FALSE"
       when Sheety::Functions::ErrorValue
         result.to_s
       when Nil
@@ -168,31 +154,13 @@ module Sheety
     # Initialize all cells in a range to empty strings
     # This is needed because Croupier requires all input keys to exist
     def initialize_range(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Nil
-      # Convert column letters to numbers
-      col_num = ->(col : String) {
-        num = 0
-        col.each_char { |char| num = num * 26 + (char.ord - 'A'.ord + 1) }
-        num
-      }
-
-      # Convert column numbers to letters
-      num_to_col = ->(num : Int32) {
-        result = ""
-        while num > 0
-          num -= 1
-          result = ('A' + (num % 26)).to_s + result
-          num //= 26
-        end
-        result
-      }
-
-      start_col_num = col_num.call(start_col)
-      end_col_num = col_num.call(end_col)
+      start_col_num = CellRefs.col_to_num(start_col)
+      end_col_num = CellRefs.col_to_num(end_col)
 
       # Set all cells in range to empty string
       (start_row..end_row).each do |row|
         (start_col_num..end_col_num).each do |col|
-          col_str = num_to_col.call(col)
+          col_str = CellRefs.num_to_col(col)
           Croupier::TaskManager.set(sheet + "!" + col_str + row.to_s, "")
         end
       end

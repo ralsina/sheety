@@ -794,3 +794,230 @@ describe Sheety::Functions do
     end
   end
 end
+
+describe Sheety::CodeGenerator do
+  describe "newly wired functions" do
+    it "emits flatten-based calls for aggregate functions" do
+      {"COUNTA"  => "counta",
+       "MEDIAN"  => "median",
+       "STDEV"   => "stdev",
+       "STDEV.S" => "stdev",
+       "STDEV.P" => "stdev_p",
+       "VAR.S"   => "var_s",
+       "VAR.P"   => "var_p"}.each do |excel, crystal|
+        ast = Sheety.parse_to_ast("=#{excel}(A1:A5)")
+        code = Sheety::CodeGenerator.new.generate(ast)
+        code.should contain("Sheety::Functions.#{crystal}(Sheety::Functions.flatten(fetch_cell_range(")
+      end
+    end
+
+    it "emits flatten for AND/OR/CONCAT so range arguments compile" do
+      {"AND" => "and", "OR" => "or", "CONCAT" => "concat"}.each do |excel, crystal|
+        ast = Sheety.parse_to_ast("=#{excel}(A1:A5, B1)")
+        code = Sheety::CodeGenerator.new.generate(ast)
+        code.should contain("Sheety::Functions.#{crystal}(Sheety::Functions.flatten(fetch_cell_range(")
+      end
+    end
+
+    it "emits direct calls for passthrough functions" do
+      {"CEILING" => "ceiling", "FLOOR" => "floor", "ROUNDUP" => "roundup",
+       "ROUNDDOWN" => "rounddown", "RANDBETWEEN" => "randbetween",
+       "FIND" => "find", "SEARCH" => "search", "SUBSTITUTE" => "substitute",
+       "EXACT" => "exact", "REPT" => "rept", "DATEDIF" => "datedif",
+       "EOMONTH" => "eomonth"}.each do |excel, crystal|
+        ast = Sheety.parse_to_ast("=#{excel}(A1, 2)")
+        code = Sheety::CodeGenerator.new.generate(ast)
+        code.should contain("Sheety::Functions.#{crystal}(")
+      end
+    end
+
+    it "emits renamed registry functions" do
+      {"TEXT" => "text_func", "VALUE" => "value_func", "PROPER" => "proper",
+       "CLEAN" => "clean", "YEAR" => "year", "MONTH" => "month",
+       "DAY" => "day"}.each do |excel, crystal|
+        ast = Sheety.parse_to_ast("=#{excel}(A1)")
+        code = Sheety::CodeGenerator.new.generate(ast)
+        code.should contain("Sheety::Functions.#{crystal}(")
+      end
+    end
+
+    it "emits bare calls for zero-argument functions, dropping stray args" do
+      {"RAND" => "rand", "TODAY" => "today", "NOW" => "now"}.each do |excel, crystal|
+        code = Sheety::CodeGenerator.new.generate(Sheety.parse_to_ast("=#{excel}()"))
+        code.should eq("Sheety::Functions.#{crystal}")
+
+        code = Sheety::CodeGenerator.new.generate(Sheety.parse_to_ast("=#{excel}(1)"))
+        code.should eq("Sheety::Functions.#{crystal}")
+      end
+    end
+
+    it "emits IFS with flattened condition/value pairs" do
+      ast = Sheety.parse_to_ast(%(=IFS(A1>1, "big", A1<0, "small")))
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("Sheety::Functions.ifs(Sheety::Functions.flatten(")
+    end
+
+    it "emits SWITCH with flattened pairs and a separate trailing default" do
+      ast = Sheety.parse_to_ast(%(=SWITCH(A1, 1, "one", 2, "two", "other")))
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("Sheety::Functions.switch_func(fetch_cell(\"A1\"), Sheety::Functions.flatten(")
+      code.should contain(%(, "other"))
+    end
+
+    it "emits SWITCH without a default for complete pairs" do
+      ast = Sheety.parse_to_ast(%(=SWITCH(A1, 1, "one")))
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should eq(%(Sheety::Functions.switch_func(fetch_cell("A1"), Sheety::Functions.flatten(BigFloat.new(1.0, precision: 64), "one"))))
+    end
+
+    it "emits COUNTIF over range arguments" do
+      ast = Sheety.parse_to_ast(%(=COUNTIF(A1:A5, ">5")))
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("Sheety::Functions.countif(fetch_cell_range(")
+    end
+
+    it "emits SUMIF with optional sum range" do
+      ast = Sheety.parse_to_ast(%(=SUMIF(A1:A5, ">5", B1:B5)))
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("Sheety::Functions.sumif(fetch_cell_range(")
+
+      ast = Sheety.parse_to_ast(%(=SUMIF(A1:A5, ">5")))
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("Sheety::Functions.sumif(fetch_cell_range(")
+    end
+
+    it "degrades COUNTIF to #VALUE! for non-array ranges" do
+      ast = Sheety.parse_to_ast(%(=COUNTIF(A1, ">5")))
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("#VALUE!")
+    end
+
+    it "fetches VLOOKUP table arguments as 2D ranges" do
+      ast = Sheety.parse_to_ast("=VLOOKUP(A1, B1:C5, 2)")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      code = Sheety::CodeGenerator.new.generate(ast, context)
+      code.should contain(%(Sheety::Functions.vlookup(fetch_cell("Sheet1!A1"), fetch_cell_range_2d("Sheet1", "B", 1, "C", 5), BigFloat.new(2.0, precision: 64))))
+    end
+
+    it "passes VLOOKUP's range_lookup argument through" do
+      ast = Sheety.parse_to_ast("=VLOOKUP(A1, B1:C5, 2, FALSE)")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      code = Sheety::CodeGenerator.new.generate(ast, context)
+      code.should contain("Sheety::Functions.vlookup(")
+      code.should contain(", false)")
+    end
+
+    it "degrades VLOOKUP to #VALUE! when the table is not a range" do
+      ast = Sheety.parse_to_ast("=VLOOKUP(A1, D1, 2)")
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("#VALUE!")
+    end
+
+    it "degrades VLOOKUP to #VALUE! on wrong arity" do
+      ast = Sheety.parse_to_ast("=VLOOKUP(A1, B1:C5)")
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("#VALUE!")
+    end
+
+    it "emits INDEX with a 2D table and optional column" do
+      ast = Sheety.parse_to_ast("=INDEX(B1:C5, 2)")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      code = Sheety::CodeGenerator.new.generate(ast, context)
+      code.should contain(%(Sheety::Functions.index_func(fetch_cell_range_2d("Sheet1", "B", 1, "C", 5), BigFloat.new(2.0, precision: 64))))
+    end
+
+    it "degrades INDEX to #VALUE! when the table is not a range" do
+      ast = Sheety.parse_to_ast("=INDEX(A1, 2)")
+      code = Sheety::CodeGenerator.new.generate(ast)
+      code.should contain("#VALUE!")
+    end
+  end
+end
+
+describe Sheety::CroupierGenerator do
+  describe "2D table functions" do
+    it "declares 2D parameters for VLOOKUP tables in shared helpers" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D1", "=VLOOKUP(A1, B1:C5, 2)", "Sheet1")
+      source = gen.generate_source.entrypoint
+
+      source.should contain("p1 : Array(Array(Sheety::Functions::CellValue))")
+      source.should contain(%(calc_shape_0(fetch_cell("Sheet1!A1"), fetch_cell_range_2d("Sheet1", "B", 1, "C", 5))))
+    end
+
+    it "initializes and wires inputs for 2D ranges" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D1", "=VLOOKUP(A1, B1:C5, 2)", "Sheet1")
+      source = gen.generate_source.entrypoint
+
+      # The setup code must initialize every cell of the table range...
+      source.should contain(%(initialize_range("Sheet1", "B", 1, "C", 5)))
+      # ...and the task inputs must use the range helper for the same range.
+      source.should contain(%(range_inputs("Sheet1", "B", 1, "C", 5)))
+    end
+  end
+end
+
+describe Sheety::Functions do
+  describe ".flatten" do
+    it "combines scalars and arrays into one flat array" do
+      values = Sheety::Functions.flatten("a", ["b", "c"] of Sheety::Functions::CellValue, "d")
+      values.should eq(["a", "b", "c", "d"])
+    end
+
+    it "returns an empty array for no arguments" do
+      Sheety::Functions.flatten.should eq([] of Sheety::Functions::CellValue)
+    end
+  end
+
+  describe ".index_func" do
+    it "defaults the column to 1 for two-argument INDEX" do
+      row1 = [1.0.as(Sheety::Functions::CellValue), 2.0.as(Sheety::Functions::CellValue)] of Sheety::Functions::CellValue
+      row2 = [3.0.as(Sheety::Functions::CellValue), 4.0.as(Sheety::Functions::CellValue)] of Sheety::Functions::CellValue
+      table = [row1, row2] of Array(Sheety::Functions::CellValue)
+
+      Sheety::Functions.index_func(table, 2.0).should eq(3.0)
+    end
+  end
+end
+
+describe Sheety::YAMLParser do
+  describe ".parse_value" do
+    it "converts integers and decimals to BigFloat" do
+      Sheety::YAMLParser.parse_value(YAML.parse("v: 10")["v"]).should eq(BigFloat.new(10.0, precision: 64))
+      Sheety::YAMLParser.parse_value(YAML.parse("v: 1.5")["v"]).should eq(BigFloat.new(1.5, precision: 64))
+    end
+
+    it "converts booleans and quoted boolean strings" do
+      Sheety::YAMLParser.parse_value(YAML.parse("v: true")["v"]).should be_true
+      Sheety::YAMLParser.parse_value(YAML.parse("v: \"false\"")["v"]).should be_false
+    end
+
+    it "keeps other strings as strings" do
+      Sheety::YAMLParser.parse_value(YAML.parse("v: hello")["v"]).should eq("hello")
+    end
+  end
+
+  describe ".ensure_uuid_in_yaml" do
+    it "appends a new _ui_state section when absent" do
+      uuid, text = Sheety::YAMLParser.ensure_uuid_in_yaml("Sheet1:\n  A1:\n    value: 1\n", "abc-123")
+      uuid.should eq("abc-123")
+      text.should contain("_ui_state:\n  spreadsheet_uuid: abc-123")
+    end
+
+    it "inserts into an existing _ui_state section" do
+      yaml = "Sheet1:\n  A1:\n    value: 1\n_ui_state:\n  active_cell: A1\n"
+      uuid, text = Sheety::YAMLParser.ensure_uuid_in_yaml(yaml, "abc-123")
+      uuid.should eq("abc-123")
+      text.should contain("_ui_state:\n  spreadsheet_uuid: abc-123")
+      text.should contain("active_cell: A1")
+    end
+
+    it "extracts an existing uuid without rewriting the text" do
+      yaml = "_ui_state:\n  spreadsheet_uuid: existing-uuid\n"
+      uuid, text = Sheety::YAMLParser.ensure_uuid_in_yaml(yaml, "abc-123")
+      uuid.should eq("existing-uuid")
+      text.should eq(yaml)
+    end
+  end
+end
