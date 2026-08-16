@@ -1,128 +1,44 @@
-# Sheety - Excel Formula Parser (Crystal Port)
+# Testing Sheety
 
-A Crystal port of the Python `formulas` library for parsing Excel formulas.
+Sheety compiles spreadsheets (YAML or .xlsx) into standalone Crystal
+binaries with an interactive TUI. Three layers of testing cover the
+pipeline, each catching failures the previous one can't.
 
-## Features Implemented
-
-### Core Functionality
-- ✅ Formula parsing with tokenization
-- ✅ Abstract Syntax Tree (AST) generation
-- ✅ Operator precedence handling (shunting-yard algorithm)
-- ✅ Parentheses for grouping expressions
-- ✅ Comprehensive error handling
-
-### Supported Tokens
-
-#### Literals
-- **Numbers**: Integers, decimals, scientific notation (`1`, `3.14`, `1E+10`)
-- **Strings**: Double-quoted strings with escape support (`"hello"`, `"a""b"`)
-- **Booleans**: `TRUE`, `FALSE` (case-insensitive)
-- **Errors**: `#NULL!`, `#DIV/0!`, `#VALUE!`, `#REF!`, `#NUM!`, `#NAME?`, `#N/A`
-
-#### References
-- **Cell references**: `A1`, `$A1`, `A$1`, `$A$1`
-- **Ranges**: `A1:B5`, `A:B`, `1:10`
-- **Sheet references**: `Sheet1!A1`, `'My Sheet'!A1`, `Sheet1!A1:B5`
-- **Named ranges**: `MyRange`, `SalesData`, `Total_Sales`
-
-#### Operators
-- **Arithmetic**: `+`, `-`, `*`, `/`, `^` (exponentiation)
-- **Comparison**: `=`, `<`, `>`, `<=`, `>=`, `<>`
-- **Text concatenation**: `&`
-- **Unary**: `+`, `-`, `%`
-- **Intersection**: ` ` (space)
-
-#### Functions
-- **Function calls**: `SUM()`, `AVERAGE()`, `IF()`, etc.
-- **Nested functions**: `SUM(A1, MAX(B1:B5))`
-- **Multiple arguments**: `IF(A1>0, 1, 0)`
-- **No arguments**: `PI()`
-
-#### Array Constants
-- **Simple arrays**: `{1,2,3}`
-- **2D arrays**: `{{1,2},{3,4}}`
-- **Mixed types**: `{1, "text", TRUE}`
-- **Nested arrays**: Supported
-
-## Test Coverage
-
-**186 examples**, all passing:
-- 71 original Sheety tests
-- 56 parser tests adapted from Python formulas
-- 59 token tests adapted from Python formulas
-
-## Project Structure
-
-```
-src/sheety/
-├── ast.cr              # AST node classes
-├── ast_builder.cr       # AST construction
-├── parser.cr            # Main formula parser
-├── token.cr             # Base token class
-├── errors.cr            # Error classes
-└── tokens/
-    ├── operand.cr       # Number, String, Boolean, Error, Range, Array
-    ├── operator.cr       # All operator types
-    ├── parenthesis.cr    # Parenthesis handling
-    ├── function_call.cr  # Function name tokens
-    ├── argument_separator.cr  # Function argument commas
-    ├── array_constant.cr # Array constant tokens
-    └── named_range.cr    # Named range tokens
-
-spec/
-├── spec_helper.cr
-├── sheety_spec.cr              # Core functionality tests
-├── cell_refs_spec.cr           # Cell reference tests
-├── functions_spec.cr            # Function call tests
-├── intersection_spec.cr         # Intersection operator tests
-├── named_ranges_spec.cr         # Named range tests
-├── union_spec.cr                # Union operator tests
-├── array_constants_spec.cr      # Array constant tests
-├── formulas_parser_spec.cr      # Adapted from Python test_parser.py
-└── formulas_token_spec.cr       # Adapted from Python test_tokens.py
-```
-
-## Usage
-
-```crystal
-require "sheety"
-
-# Parse a formula
-ast = Sheety.parse_to_ast("=SUM(A1:B5) * 2")
-
-# The AST contains the formula structure
-puts ast.expr  # => "(SUM(A1:B5) * 2)"
-
-# Check the type
-case ast
-when Sheety::AST::FunctionCall
-  puts "Function: #{ast.function_name}"
-when Sheety::AST::BinaryOp
-  puts "Operator: #{ast.operator}"
-when Sheety::AST::Number
-  puts "Number: #{ast.value}"
-end
-```
-
-## Missing Features (from Python formulas)
-
-- R1C1 reference style
-- `@` implicit intersection operator
-- LAMBDA/LET functions
-- Array row separator (`;`) for 2D arrays
-- #GETTING_DATA error
-- External workbook references
-- Sheet-prefixed named ranges
-
-## Building
+## Running the suite
 
 ```bash
-shards build
-crystal spec
+shards install       # first time only
+crystal spec         # ~340 examples, finishes in seconds
 ```
 
-## Status
+## What the specs cover
 
-✅ Fully functional parser with comprehensive test coverage
-🎯 186 tests passing
-📚 Adapted from Python formulas library test suite
+| Area | Spec files | Notes |
+|---|---|---|
+| Tokenizer & parser | `formulas_token_spec.cr`, `formulas_parser_spec.cr`, `cell_refs_spec.cr`, `functions_spec.cr`, plus intersection/union/array-constant/named-range specs | Ported from the Python `formulas` library's test suite, so the parser has an upstream oracle. Includes regression tests tied to real past bugs (multi-digit cell refs misclassified as named ranges, XFD1048576, ...). |
+| Code generation | `code_generator_spec.cr` | Exact/substring assertions on the Crystal emitted for each Excel function, shape deduplication (shared `calc_shape_N` helpers), 2D table arguments (`fetch_cell_range_2d`), arity/type degradation to `#VALUE!`/`#NAME?`, and the range cap. |
+| Function registry | `code_generator_spec.cr` (behavioral sections) | Direct calls into `Sheety::Functions.*`: math, text, logical, lookup (VLOOKUP/HLOOKUP/INDEX), conditional aggregation (COUNTIF/SUMIF), dates, `flatten`. |
+| Generated-program helpers | `croupier_helpers_spec.cr` | Requires `croupier_helpers.cr` directly. This file is **only compiled inside generated binaries** (nothing in `src/` requires it), so without this spec `crystal spec` would never even type-check it — that gap once hid a `Bool#upcase` bug that broke every generated build. |
+| Shared utilities | `column_utils_spec.cr`, YAMLParser sections in `code_generator_spec.cr` | Column letter<->number round-trips, YAML scalar typing, `_ui_state` UUID surgery. |
+| Roundtrip | `roundtrip_spec.cr` | YAML -> XLSX -> YAML through the real importers and exporter, using temp files. |
+| Range cap | sections in `code_generator_spec.cr` | Ranges expanding past `DependencyExtractor::MAX_RANGE_CELLS` (65536) raise `FormulaError`; the generator degrades them to `#VALUE!` tasks instead of expanding billions of cells. |
+
+## What the specs do NOT cover
+
+- The interactive TUI (`tui.cr`), CLI flag handling, the build cache and
+  the in-process rebuilder have no automated specs. They are exercised by:
+- The CI end-to-end job (`.github/workflows/ci.yml`), which is the only
+  automated place where `tui.cr`, `rebuilder.cr` and `croupier_helpers.cr`
+  actually get **compiled**: it runs `bin/sheety` on a small sheet, requires
+  "Built successfully" in the output (the generated binary's `crystal build`),
+  verifies the second run hits the binary cache, and checks `--save-to=.cr`
+  conversion.
+- Manual runs in a real terminal for TUI behavior.
+
+## Also run locally before declaring done
+
+```bash
+shards build                 # build all targets
+crystal tool format --check src spec
+ameba                        # config in .ameba.yml (excludes generated examples/)
+```
