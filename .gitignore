@@ -30,3 +30,6 @@ examples/Sheety Test Sheet*
 examples/test.sheety
 *.sheety
 *.bin
+
+# ZCode agent session data
+.zcode/

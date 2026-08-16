@@ -64,7 +64,7 @@ Download pre-built static binaries from the [GitHub Releases](https://github.com
 
 ```bash
 # Download and make executable
-wget https://github.com/ralsina/sheety/releases/download/v1.0.0/sheety-static-linux-amd64 -O sheety
+wget https://github.com/ralsina/sheety/releases/download/v1.1.0/sheety-static-linux-amd64 -O sheety
 chmod +x sheety
 
 # Run
