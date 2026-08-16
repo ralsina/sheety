@@ -58,7 +58,7 @@ module Sheety
 
     # Boolean literal node
     class Boolean < Node
-      property value : Bool
+      property? value : Bool
 
       def initialize(@value : Bool)
         super()

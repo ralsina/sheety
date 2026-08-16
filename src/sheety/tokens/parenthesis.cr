@@ -8,7 +8,7 @@ module Sheety
     class Parenthesis < Token
       PAREN_REGEX = /^(?P<name>[()])/
 
-      property is_opening_paren : Bool = false
+      property? is_opening_paren : Bool = false
 
       def self.match?(s : String) : Regex::MatchData?
         PAREN_REGEX.match(s)
@@ -34,24 +34,24 @@ module Sheety
         @attr["is_closing"] = !@is_opening_paren
       end
 
-      def is_opening? : Bool
+      def opening? : Bool
         @is_opening_paren
       end
 
-      def is_closing? : Bool
+      def closing? : Bool
         !@is_opening_paren
       end
 
       def has_start : Bool
-        is_opening?
+        opening?
       end
 
       def has_end : Bool
-        is_closing?
+        closing?
       end
 
       def ast(tokens : Array(Token), stack : Array(Token), builder : AstBuilder) : Nil
-        if is_opening?
+        if opening?
           # Push opening paren onto stack
           stack << self
           tokens << self
@@ -63,7 +63,7 @@ module Sheety
           while stack.size > 0
             token = stack.pop
 
-            if token.is_a?(Parenthesis) && token.is_opening?
+            if token.is_a?(Parenthesis) && token.opening?
               # Found the matching opening paren
               found_opening = true
               # Check if there's a function token before this paren
@@ -91,7 +91,7 @@ module Sheety
             if function_index
               # Look for opening paren right after the function
               (function_index + 1).upto(tokens.size - 1) do |i|
-                if tokens[i].is_a?(Parenthesis) && tokens[i].as(Parenthesis).is_opening?
+                if tokens[i].is_a?(Parenthesis) && tokens[i].as(Parenthesis).opening?
                   opening_paren_index = i
                   break
                 end
@@ -106,13 +106,13 @@ module Sheety
               relevant_tokens = tokens[(opening_paren_index + 1)..-1]
 
               # Count ArgumentSeparator tokens to determine number of arguments
-              separator_count = relevant_tokens.count { |t| t.is_a?(ArgumentSeparator) }
+              separator_count = relevant_tokens.count { |inner_token| inner_token.is_a?(ArgumentSeparator) }
               expected_args = separator_count + 1
 
               # Count "operand" tokens (things that push nodes to builder)
               operand_count = 0
-              relevant_tokens.each do |t|
-                if t.is_a?(Operand) || t.is_a?(Function)
+              relevant_tokens.each do |inner_token|
+                if inner_token.is_a?(Operand) || inner_token.is_a?(Function)
                   operand_count += 1
                 end
               end

@@ -58,7 +58,7 @@ module Sheety
 
       # For non-YAML files, we need a YAML intermediate file
       if File.extname(spreadsheet_file.source_file).downcase != ".yaml"
-        temp_yaml = File.join(DataDir.path, "tmp", "#{UUID.random.to_s}.yaml")
+        temp_yaml = File.join(DataDir.path, "tmp", "#{UUID.random}.yaml")
         Spreadsheet.write(data, temp_yaml)
         filename = temp_yaml
       else
@@ -111,9 +111,9 @@ module Sheety
 
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
-      generator.set_state_file_path(croupier_state)
-      generator.set_kv_store_path(kv_store)
-      generator.set_spreadsheet_uuid(spreadsheet_uuid)
+      generator.state_file_path = croupier_state
+      generator.kv_store_path = kv_store
+      generator.spreadsheet_uuid = spreadsheet_uuid
 
       # Convert data to Croupier format (formulas + initial values)
       initial_values = Spreadsheet.populate_generator(data, generator)

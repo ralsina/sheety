@@ -164,13 +164,13 @@ describe Sheety do
       it "parses TRUE" do
         ast = Sheety.parse_to_ast("=TRUE")
         ast.should be_a(Sheety::AST::Boolean)
-        ast.as(Sheety::AST::Boolean).value.should eq(true)
+        ast.as(Sheety::AST::Boolean).value?.should eq(true)
       end
 
       it "parses FALSE" do
         ast = Sheety.parse_to_ast("=FALSE")
         ast.should be_a(Sheety::AST::Boolean)
-        ast.as(Sheety::AST::Boolean).value.should eq(false)
+        ast.as(Sheety::AST::Boolean).value?.should eq(false)
       end
 
       it "parses mixed case boolean" do

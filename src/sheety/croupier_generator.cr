@@ -63,25 +63,25 @@ module Sheety
     end
 
     # Set the original filename (for save functionality)
-    def set_original_filename(filename : String) : self
+    def original_filename=(filename : String) : self
       @original_filename = filename
       self
     end
 
     # Set the path for the .croupier state file
-    def set_state_file_path(path : String) : self
+    def state_file_path=(path : String) : self
       @state_file_path = path
       self
     end
 
     # Set the path for the persistent k/v store
-    def set_kv_store_path(path : String) : self
+    def kv_store_path=(path : String) : self
       @kv_store_path = path
       self
     end
 
     # Set the spreadsheet UUID (for tracking purposes)
-    def set_spreadsheet_uuid(uuid : String) : self
+    def spreadsheet_uuid=(uuid : String) : self
       @spreadsheet_uuid = uuid
       self
     end
@@ -217,13 +217,6 @@ module Sheety
         formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
         ast = parse_formula(formula)
         next if ast.nil?
-
-        # Extract dependencies including expanded ranges
-        dependencies = @extractor.extract(ast, info.sheet)
-        dependencies.each do |_|
-          # Check if this dependency is a range reference by looking for patterns
-          # We need to find the original range references in the AST
-        end
 
         # Find range references directly in the calc code
         calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
@@ -542,8 +535,15 @@ puts ""
         return %(  {id: #{id.inspect}, inputs: ->{ [] of String }, output: #{output.inspect}, body: ->{ "#VALUE!" }},\n)
       end
 
-      # Extract dependencies - these are the inputs
-      dependencies = @extractor.extract(ast, info.sheet)
+      # Extract dependencies - these are the inputs. Oversized ranges raise
+      # FormulaError; treat those formulas as invalid (#VALUE!) rather than
+      # expanding millions of cells.
+      dependencies = begin
+        @extractor.extract(ast, info.sheet)
+      rescue e : FormulaError
+        STDERR.puts "Warning: #{info.key}: #{e.message}"
+        return %(  {id: #{id.inspect}, inputs: ->{ [] of String }, output: #{output.inspect}, body: ->{ "#VALUE!" }},\n)
+      end
 
       # Generate the concrete calculation code. Used to derive inputs (by
       # scanning for fetch_cell_range calls) and as the fallback body.
@@ -659,13 +659,13 @@ tui = Sheety::TUI.new(sheets, sheet_data) do |sheet, cell_ref, new_value|
 end
 
 # Set source file for save functionality
-#{source_file ? "tui.set_source_file(#{source_file.inspect})" : ""}
+#{source_file ? "tui.source_file = #{source_file.inspect}" : ""}
 
 # Set original source file for saves (persists across rebuilds)
-#{@original_filename ? "tui.set_original_source_file(#{@original_filename.inspect})" : (source_file ? "tui.set_original_source_file(#{source_file.inspect})" : "")}
+#{@original_filename ? "tui.original_source_file = #{@original_filename.inspect}" : (source_file ? "tui.original_source_file = #{source_file.inspect}" : "")}
 
 # Set intermediate file for auto-saves (formula edits)
-#{intermediate_file ? "tui.set_intermediate_file(#{intermediate_file.inspect})" : ""}
+#{intermediate_file ? "tui.intermediate_file = #{intermediate_file.inspect}" : ""}
 
 # Set value getter callback to fetch fresh values from Croupier store
 tui.set_value_getter do |sheet, cell_ref|

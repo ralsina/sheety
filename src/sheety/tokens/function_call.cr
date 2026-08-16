@@ -13,7 +13,6 @@ module Sheety
       def self.match?(s : String) : Regex::MatchData?
         # Check if this looks like a function name followed by (
         if m = FUNCTION_NAME_REGEX.match(s)
-          name_match = m["name"]
           rest = s[m.end(0)..-1] # Use m.end(0) to get position after the match
 
           # Only match if the function name is immediately followed by (

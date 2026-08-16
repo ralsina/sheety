@@ -22,7 +22,7 @@ module Sheety
       property param_index : Int32
       # While visiting the table argument of a lookup function (see
       # TABLE_ARG_POSITIONS), so RangeRef renders as a 2D matrix fetch.
-      property table_arg : Bool
+      property? table_arg : Bool
 
       def initialize(@sheet : String? = nil)
         @cells = Hash(String, BigFloat | String | Bool).new
@@ -125,7 +125,7 @@ module Sheety
     end
 
     private def visit(node : Boolean, context : Context) : String
-      node.value.to_s
+      node.value?.to_s
     end
 
     private def visit(node : ErrorValue, context : Context) : String
@@ -159,7 +159,7 @@ module Sheety
 
         # Table arguments (VLOOKUP et al.) fetch the range as a 2D matrix;
         # every other range fetches a flat, row-major array.
-        helper = context.table_arg ? "fetch_cell_range_2d" : "fetch_cell_range"
+        helper = context.table_arg? ? "fetch_cell_range_2d" : "fetch_cell_range"
 
         # Generate call to helper function
         "#{helper}(#{sheet.inspect}, #{start_col.inspect}, #{start_row}, #{end_col.inspect}, #{end_row})"
@@ -440,7 +440,7 @@ module Sheety
       when StringLiteral
         "str(#{node.value})"
       when Boolean
-        "bool(#{node.value})"
+        "bool(#{node.value?})"
       when ErrorValue
         "err(#{node.error_value})"
       when UnaryOp

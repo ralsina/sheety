@@ -89,7 +89,7 @@ module Sheety
 
         last_token = tokens.last
         # Unary if after: opening paren, another operator, or at start
-        last_token.is_a?(Parenthesis) && last_token.is_opening? ||
+        last_token.is_a?(Parenthesis) && last_token.opening? ||
           last_token.is_a?(Operator)
       end
 
@@ -123,11 +123,6 @@ module Sheety
       def process(match : Regex::MatchData) : Nil
         @attr["name"] = match["name"]
         @operator_name = match["name"]
-      end
-
-      def set_expr(*tokens : Token) : Nil
-        exprs = tokens.map(&.get_expr)
-        @attr["expr"] = "(#{exprs.join(" #{name} ")})"
       end
 
       # Compile to actual operator function
@@ -189,11 +184,6 @@ module Sheety
         @operator_name = match["name"]
       end
 
-      def set_expr(*tokens : Token) : Nil
-        exprs = tokens.map(&.get_expr)
-        @attr["expr"] = "(#{exprs.join(" #{name} ")})"
-      end
-
       def compile : Proc(Array(BigFloat | String), BigFloat | String)
         case @operator_name
         when "="
@@ -248,11 +238,6 @@ module Sheety
         @operator_name = "&"
       end
 
-      def set_expr(*tokens : Token) : Nil
-        exprs = tokens.map(&.get_expr)
-        @attr["expr"] = "(#{exprs.join(" & ")})"
-      end
-
       def compile : Proc(Array(BigFloat | String), BigFloat | String)
         ->(args : Array(BigFloat | String)) {
           left = args[0].is_a?(BigFloat) ? args[0].as(BigFloat).to_s : args[0].as(String)
@@ -284,10 +269,6 @@ module Sheety
         @operator_name = "%"
       end
 
-      def set_expr(*tokens : Token) : Nil
-        @attr["expr"] = "#{tokens[0].get_expr}%"
-      end
-
       def compile : Proc(Array(BigFloat | String), BigFloat | String)
         ->(args : Array(BigFloat | String)) {
           (args[0].as(BigFloat) / 100.0).as(BigFloat | String)
@@ -315,11 +296,6 @@ module Sheety
       def process(match : Regex::MatchData) : Nil
         @attr["name"] = ":"
         @operator_name = ":"
-      end
-
-      def set_expr(*tokens : Token) : Nil
-        exprs = tokens.map(&.get_expr)
-        @attr["expr"] = "#{exprs.join(":")}"
       end
 
       def compile : Proc(Array(BigFloat | String), BigFloat | String)
@@ -352,17 +328,12 @@ module Sheety
         @operator_name = ","
       end
 
-      def set_expr(*tokens : Token) : Nil
-        exprs = tokens.map(&.get_expr)
-        @attr["expr"] = exprs.join(", ")
-      end
-
       # Separator has special handling in ast()
       def ast(tokens : Array(Token), stack : Array(Token), builder : AstBuilder) : Nil
         # Insert empty operand for consecutive separators or after opening paren
         if tokens.size > 0
           last_token = tokens.last
-          if last_token.is_a?(SeparatorOperator) || (last_token.is_a?(Parenthesis) && last_token.is_opening?)
+          if last_token.is_a?(SeparatorOperator) || (last_token.is_a?(Parenthesis) && last_token.opening?)
             # Create and append an empty operand
             empty = Tokens::EmptyOperand.new("")
             empty.ast(tokens, stack, builder)
@@ -375,7 +346,7 @@ module Sheety
         while stack.size > 0
           token = stack.last?
           break unless token
-          if token.is_a?(Parenthesis) && token.as(Parenthesis).is_opening?
+          if token.is_a?(Parenthesis) && token.as(Parenthesis).opening?
             break
           end
           builder.append(stack.pop)
@@ -409,11 +380,6 @@ module Sheety
       def process(match : Regex::MatchData) : Nil
         @attr["name"] = " "
         @operator_name = " "
-      end
-
-      def set_expr(*tokens : Token) : Nil
-        exprs = tokens.map(&.get_expr)
-        @attr["expr"] = exprs.join(" ")
       end
 
       def compile : Proc(Array(BigFloat | String), BigFloat | String)

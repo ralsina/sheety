@@ -656,14 +656,14 @@ module Sheety
         if cells = @sheet_data[sheet_name]?
           # Find the cell in sheet_data and update its formula
           found = false
-          cells.each_with_index do |cell|
+          cells.each do |cell|
             if cell[:cell] == cell_ref
               # Update the formula in the array
-              @sheet_data[sheet_name] = cells.map do |c|
-                if c[:cell] == cell_ref
-                  {cell: c[:cell], formula: @edit_buffer, value: c[:value]}
+              @sheet_data[sheet_name] = cells.map do |entry|
+                if entry[:cell] == cell_ref
+                  {cell: entry[:cell], formula: @edit_buffer, value: entry[:value]}
                 else
-                  c
+                  entry
                 end
               end
               found = true
@@ -682,7 +682,7 @@ module Sheety
 
         # Ensure we have an intermediate file
         rebuild_file = @intermediate_file || @source_file
-        return unless rebuild_file && !rebuild_file.empty?
+        return if rebuild_file.nil? || rebuild_file.empty?
 
         # Save current state to intermediate file as YAML
         # Build YAML structure directly from current state
@@ -715,14 +715,14 @@ module Sheety
               # Use the original source file for tracking, but rebuild from intermediate file
               original_for_rebuild = @original_source_file || rebuild_file
               rebuilder = Sheety::Rebuilder.new(original_for_rebuild)
-              rebuilder.set_intermediate_file(rebuild_file)
+              rebuilder.intermediate_file = rebuild_file
 
               # Set UUID if we have it (from _ui_state in YAML)
               begin
                 yaml_content = File.read(rebuild_file)
                 data = YAML.parse(yaml_content)
                 if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
-                  rebuilder.set_spreadsheet_uuid(data["_ui_state"]["spreadsheet_uuid"].as_s)
+                  rebuilder.spreadsheet_uuid = data["_ui_state"]["spreadsheet_uuid"].as_s
                 end
               rescue
                 # Ignore errors reading UUID
@@ -755,7 +755,7 @@ module Sheety
         # Update @sheet_data so the new cell is included in future initialize_grid calls
         if data = @sheet_data[sheet_name]?
           # Find existing cell or add new one
-          existing_idx = data.index { |c| c[:cell] == cell_ref }
+          existing_idx = data.index { |entry| entry[:cell] == cell_ref }
           if existing_idx
             # Update existing cell's value
             data[existing_idx] = {cell: cell_ref, formula: data[existing_idx][:formula], value: @edit_buffer}
@@ -789,15 +789,15 @@ module Sheety
       @save_callback = callback
     end
 
-    def set_source_file(source_file : String) : Nil
+    def source_file=(source_file : String) : Nil
       @source_file = source_file
     end
 
-    def set_intermediate_file(intermediate_file : String) : Nil
+    def intermediate_file=(intermediate_file : String) : Nil
       @intermediate_file = intermediate_file
     end
 
-    def set_original_source_file(original_file : String) : Nil
+    def original_source_file=(original_file : String) : Nil
       @original_source_file = original_file
     end
 

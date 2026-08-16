@@ -27,12 +27,12 @@ module Sheety
     def initialize(@original_filename : String)
     end
 
-    def set_spreadsheet_uuid(uuid : String) : self
+    def spreadsheet_uuid=(uuid : String) : self
       @spreadsheet_uuid = uuid
       self
     end
 
-    def set_intermediate_file(file : String) : self
+    def intermediate_file=(file : String) : self
       @intermediate_file = file
       self
     end
@@ -86,10 +86,10 @@ module Sheety
 
       # Generate the Crystal source file using CroupierGenerator
       generator = CroupierGenerator.new
-      generator.set_state_file_path(croupier_state)
-      generator.set_kv_store_path(kv_store)
-      generator.set_spreadsheet_uuid(spreadsheet_uuid)
-      generator.set_original_filename(filename)
+      generator.state_file_path = croupier_state
+      generator.kv_store_path = kv_store
+      generator.spreadsheet_uuid = spreadsheet_uuid
+      generator.original_filename = filename
       initial_values = Hash(String, BigFloat | String | Bool).new
 
       # Load YAML file and process

@@ -349,7 +349,7 @@ module Sheety
           A1:
             value: 0
         _ui_state:
-          spreadsheet_uuid: #{UUID.random.to_s}
+          spreadsheet_uuid: #{UUID.random}
         YAML
 
       File.write(file_path, content.strip)
@@ -358,7 +358,7 @@ module Sheety
     # Create an empty Excel spreadsheet
     private def self.create_empty_excel(file_path : String) : Nil
       # Create via YAML intermediate then convert
-      temp_yaml = File.join(DataDir.path, "tmp", "empty_#{UUID.random.to_s}.yaml")
+      temp_yaml = File.join(DataDir.path, "tmp", "empty_#{UUID.random}.yaml")
       create_empty_yaml(temp_yaml)
       convert(temp_yaml, file_path)
       File.delete(temp_yaml)

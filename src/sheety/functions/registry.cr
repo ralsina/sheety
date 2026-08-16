@@ -511,7 +511,7 @@ module Sheety
 
     # CONCAT: Joins several text strings into one text string (supports multiple arrays)
     def self.concat(*values : Array(CellValue)) : CellValue
-      values.map { |arr| arr.map { |v| to_string(v) } }.flatten.join
+      values.flat_map { |array| array.map { |value| to_string(value) } }.join
     end
 
     # CONCAT: Single array overload for backward compatibility
@@ -634,9 +634,7 @@ module Sheety
 
     # COUNTA: Counts how many values are in the list of arguments (non-empty)
     def self.counta(values : Array(CellValue)) : CellValue
-      values.reject do |v|
-        v.nil? || (v.is_a?(String) && v.empty?)
-      end.size.to_f
+      values.count { |value| !(value.nil? || (value.is_a?(String) && value.empty?)) }.to_f
     end
 
     # MEDIAN: Returns the median of the given numbers
@@ -662,7 +660,7 @@ module Sheety
       return 0.0 if numbers.size == 1
 
       mean = numbers.sum / numbers.size
-      variance = numbers.sum { |n| (n - mean) ** 2 } / (numbers.size - 1)
+      variance = numbers.sum { |number| (number - mean) ** 2 } / (numbers.size - 1)
       Math.sqrt(variance)
     end
 
@@ -672,7 +670,7 @@ module Sheety
       return div0 if numbers.empty?
 
       mean = numbers.sum / numbers.size
-      variance = numbers.sum { |n| (n - mean) ** 2 } / numbers.size
+      variance = numbers.sum { |number| (number - mean) ** 2 } / numbers.size
       Math.sqrt(variance)
     end
 
@@ -682,7 +680,7 @@ module Sheety
       return div0 if numbers.size < 2
 
       mean = numbers.sum / numbers.size
-      numbers.sum { |n| (n - mean) ** 2 } / (numbers.size - 1)
+      numbers.sum { |number| (number - mean) ** 2 } / (numbers.size - 1)
     end
 
     # VAR.P: Calculates variance based on entire population
@@ -691,7 +689,7 @@ module Sheety
       return div0 if numbers.empty?
 
       mean = numbers.sum / numbers.size
-      numbers.sum { |n| (n - mean) ** 2 } / numbers.size
+      numbers.sum { |number| (number - mean) ** 2 } / numbers.size
     end
 
     # Additional math functions
