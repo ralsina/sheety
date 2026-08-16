@@ -117,6 +117,9 @@ module Sheety
             termisu:
               github: omarluq/termisu
               version: ~> 0.6.2
+            baked_file_system:
+              github: ralsina/baked_file_system
+              commit: beb373124c7a235cfb9cd94e36849d8168eaa04b
           YAML
 
         File.write(shard_path, shard_content)

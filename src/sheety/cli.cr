@@ -133,9 +133,13 @@ module Sheety
       # produces a new hash and thus a fresh path.
       CroupierGenerator.write_generated(generated, output_cr)
 
-      # Build the binary (the fast path above already returned for cache hits)
+      # Build the binary (the fast path above already returned for cache hits).
+      # Run the compiler from the data directory so `require "croupier"` etc.
+      # resolve against its lib/ (crystal resolves shard requires from the
+      # working directory, which for end users has no lib of its own).
       puts "Building #{binary_name}..."
-      build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name],
+        chdir: DataDir.path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
       unless build_result.success?
         STDERR.puts "\nError: Build failed"

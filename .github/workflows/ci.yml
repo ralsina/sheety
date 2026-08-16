@@ -72,16 +72,20 @@ jobs:
             D5: {formula: "=SWITCH(B1, \"apple\", \"fruit\", \"other\")"}
           YAML
           # This is the only place tui.cr, rebuilder.cr and croupier_helpers.cr
-          # get compiled: they only exist inside generated binaries. The run
-          # itself needs a terminal (fails with /dev/tty error), so success is
-          # judged on the build step's output.
-          output=$(bin/sheety /tmp/smoke/smoke.yaml 2>&1) || true
+          # get compiled: they only exist inside generated binaries. Run from a
+          # directory with no lib/ so the build must resolve shards from the
+          # sheety data dir like an end user's machine would. The run itself
+          # needs a terminal (fails with /dev/tty error), so success is judged
+          # on the build step's output.
+          cd /tmp/smoke
+          output=$("$GITHUB_WORKSPACE/bin/sheety" smoke.yaml 2>&1) || true
           echo "$output"
           echo "$output" | grep -q "Built successfully" \
             || { echo "::error::generated binary failed to build"; exit 1; }
       - name: Second run hits the binary cache
         run: |
-          output=$(bin/sheety /tmp/smoke/smoke.yaml 2>&1) || true
+          cd /tmp/smoke
+          output=$("$GITHUB_WORKSPACE/bin/sheety" smoke.yaml 2>&1) || true
           echo "$output"
           echo "$output" | grep -q "Using cached binary" \
             || { echo "::error::expected cache hit on second run"; exit 1; }

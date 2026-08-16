@@ -333,7 +333,10 @@ module Sheety
 
       CroupierGenerator.write_generated(generated, temp_source)
 
+      # Compile from the data directory so shard requires resolve against
+      # its lib/ (end users run --save-to outside the repository).
       compile_result = Process.run("crystal", ["build", "-Dno_embedded_files", temp_source, "-o", file_path],
+        chdir: DataDir.path,
         output: Process::Redirect::Inherit,
         error: Process::Redirect::Inherit)
 

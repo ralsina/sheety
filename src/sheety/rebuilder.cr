@@ -110,8 +110,10 @@ module Sheety
       # table across files to cap compiler memory)
       CroupierGenerator.write_generated(generated, output_cr)
 
-      # Build the binary
-      build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name], output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+      # Build the binary. Run the compiler from the data directory so shard
+      # requires resolve against its lib/ (see CLI#handle_file).
+      build_result = Process.run("crystal", ["build", output_cr, "-o", binary_name],
+        chdir: DataDir.path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
       unless build_result.success?
         STDERR.puts "\nError: Build failed"

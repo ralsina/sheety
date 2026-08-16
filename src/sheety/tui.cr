@@ -940,8 +940,10 @@ module Sheety
         # Keep the .sheety extension for the binary
         binary_name = source_file
 
+        # Compile from the data directory so shard requires resolve against
+        # its lib/ (crystal resolves shard requires from the working directory).
         compile_result = Process.run("crystal", ["build", "-Dno_embedded_files", temp_source, "-o", binary_name],
-          output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+          chdir: DataDir.path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
 
         if compile_result.success?
           show_notification("Compiled binary: #{binary_name}", Notification::Level::Info)
