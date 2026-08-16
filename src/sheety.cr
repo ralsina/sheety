@@ -15,7 +15,7 @@ require "./sheety/cli"
 
 # TODO: Write documentation for `Sheety`
 module Sheety
-  VERSION = "0.1.0"
+  VERSION = {{ `shards version #{__DIR__}`.chomp.stringify }}
 
   # Parse an Excel formula and return the AST root node
   def self.parse_to_ast(formula : String) : AST::Node
