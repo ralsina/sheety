@@ -1,3 +1,5 @@
+require "./cell_refs"
+
 module Sheety
   # Extracts cell dependencies from formula AST for Croupier task inputs
   class DependencyExtractor
@@ -90,38 +92,18 @@ module Sheety
       result = [] of String
 
       # Convert column letters to numbers
-      start_col_num = column_to_number(start_col)
-      end_col_num = column_to_number(end_col)
+      start_col_num = CellRefs.col_to_num(start_col)
+      end_col_num = CellRefs.col_to_num(end_col)
 
       # Iterate through rows and columns
       (start_row..end_row).each do |row|
         (start_col_num..end_col_num).each do |col|
-          col_str = number_to_column(col)
+          col_str = CellRefs.num_to_col(col)
           ref = sheet ? "#{sheet}!#{col_str}#{row}" : "#{col_str}#{row}"
           result << ref
         end
       end
 
-      result
-    end
-
-    # Convert column letter(s) to number (A=1, Z=26, AA=27, etc.)
-    private def column_to_number(col : String) : Int32
-      num = 0
-      col.each_char do |char|
-        num = num * 26 + (char.ord - 'A'.ord + 1)
-      end
-      num
-    end
-
-    # Convert column number to letter(s) (1=A, 26=Z, 27=AA, etc.)
-    private def number_to_column(num : Int32) : String
-      result = ""
-      while num > 0
-        num -= 1
-        result = ('A' + (num % 26)).to_s + result
-        num //= 26
-      end
       result
     end
   end

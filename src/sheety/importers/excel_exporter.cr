@@ -1,6 +1,7 @@
 require "big"
 require "compress/zip"
 require "xml"
+require "../cell_refs"
 
 module Sheety
   class ExcelExporter
@@ -356,16 +357,7 @@ module Sheety
     # Parse column number from cell reference (e.g., "A1" -> 1, "B1" -> 2)
     private def self.parse_col(cell_ref : String) : Int32
       match = cell_ref.match(/([A-Za-z]+)\d+/)
-      if match
-        col_str = match[1]
-        col_num = 0
-        col_str.each_char do |char|
-          col_num = col_num * 26 + (char.upcase.ord - 'A'.ord + 1)
-        end
-        col_num
-      else
-        1
-      end
+      match ? CellRefs.col_to_num(match[1]) : 1
     end
 
     # Escape XML special characters

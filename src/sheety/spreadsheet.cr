@@ -1,6 +1,7 @@
 require "big"
 require "yaml"
 require "uuid"
+require "./yaml_parser"
 require "./importers/excel_importer"
 require "./importers/excel_exporter"
 require "./data_dir"
@@ -65,6 +66,38 @@ module Sheety
       end
     end
 
+    # Populate a CroupierGenerator with the formulas of a workbook and collect
+    # the initial values for every non-formula cell. Shared by the CLI launch
+    # path and the .cr / .sheety converters, which previously each carried
+    # their own copy of this loop.
+    def self.populate_generator(data : WorkbookData, generator : CroupierGenerator) : Hash(String, BigFloat | String | Bool)
+      initial_values = Hash(String, BigFloat | String | Bool).new
+
+      data.each do |sheet_name, sheet_data|
+        sheet_data.each do |cell_ref, cell_data|
+          key = "#{sheet_name}!#{cell_ref}"
+
+          if cell_data.has_key?("formula")
+            formula = cell_data["formula"].to_s
+            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
+          elsif cell_data.has_key?("value")
+            value = cell_data["value"]
+            # Skip nil values
+            next if value.nil?
+            # Convert to appropriate type
+            case value
+            when String, BigFloat, Bool
+              initial_values[key] = value
+            else
+              initial_values[key] = value.to_s
+            end
+          end
+        end
+      end
+
+      initial_values
+    end
+
     # Get or create UUID for spreadsheet data
     private def self.get_or_create_uuid_for_data(data : WorkbookData, file_path : String) : String
       uuid = nil
@@ -82,33 +115,14 @@ module Sheety
       unless uuid
         uuid = UUID.random.to_s
 
-        # If it's a YAML file, write the UUID back to it
-        if File.extname(file_path).downcase == ".yaml"
-          # Add UUID to _ui_state section
+        # Persist the UUID in the YAML file's _ui_state section so it
+        # survives rebuilds (.yaml and .yml alike; other formats keep
+        # their UUID only in the intermediate YAML)
+        if {".yaml", ".yml"}.includes?(File.extname(file_path).downcase)
           yaml_content = File.read(file_path)
-
-          if yaml_content.includes?("_ui_state:")
-            if yaml_content.includes?("spreadsheet_uuid:")
-              # Already has it, try to extract
-              yaml_content.each_line do |line|
-                if line.includes?("spreadsheet_uuid:")
-                  match = line.match(/spreadsheet_uuid:\s*(\S+)/)
-                  if match
-                    uuid = match[1]
-                    break
-                  end
-                end
-              end
-            else
-              # Append the UUID to existing _ui_state section
-              yaml_content = yaml_content.gsub(/(_ui_state:)/, "\\1\n  spreadsheet_uuid: #{uuid}")
-              File.write(file_path, yaml_content)
-            end
-          else
-            # Add _ui_state section at the end
-            yaml_content = yaml_content + "\n_ui_state:\n  spreadsheet_uuid: #{uuid}\n"
-            File.write(file_path, yaml_content)
-          end
+          effective_uuid, new_content = YAMLParser.ensure_uuid_in_yaml(yaml_content, uuid)
+          File.write(file_path, new_content) if new_content != yaml_content
+          uuid = effective_uuid
         end
       end
 
@@ -159,7 +173,7 @@ module Sheety
             when "formula"
               cell["formula"] = value.as_s
             when "value"
-              cell["value"] = parse_yaml_value(value)
+              cell["value"] = YAMLParser.parse_value(value)
             end
           end
 
@@ -273,60 +287,10 @@ module Sheety
       puts "Export complete!"
     end
 
-    # Parse YAML value to appropriate type
-    private def self.parse_yaml_value(value : YAML::Any) : CellValue
-      raw = value.raw
-
-      case raw
-      when String
-        # Check if it's a boolean
-        if raw == "true"
-          true
-        elsif raw == "false"
-          false
-        else
-          raw
-        end
-      when Int32, Int64
-        BigFloat.new(raw.to_f, precision: 64)
-      when BigFloat
-        BigFloat.new(raw, precision: 64)
-      when Bool
-        raw
-      else
-        raw.to_s
-      end
-    end
-
     # Write Crystal source code format
     private def self.write_crystal_source(data : WorkbookData, file_path : String, source_file : String?) : Nil
       generator = CroupierGenerator.new
-      initial_values = Hash(String, BigFloat | String | Bool).new
-
-      # Convert data to Croupier format
-      data.each do |sheet_name, sheet_data|
-        sheet_data.each do |cell_ref, cell_data|
-          key = "#{sheet_name}!#{cell_ref}"
-
-          if cell_data.has_key?("formula")
-            formula = cell_data["formula"].to_s
-            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
-          elsif cell_data.has_key?("value")
-            value = cell_data["value"]
-            # Skip nil values
-            next if value.nil?
-            # Convert to appropriate type
-            case value
-            when String, Bool
-              initial_values[key] = value
-            when BigFloat
-              initial_values[key] = value
-            else
-              initial_values[key] = value.to_s
-            end
-          end
-        end
-      end
+      initial_values = populate_generator(data, generator)
 
       # Generate source code (entrypoint + optional chunk files for large sheets)
       chunk_prefix = File.basename(file_path, File.extname(file_path))
@@ -355,32 +319,7 @@ module Sheety
     # Write compiled binary format
     private def self.write_binary(data : WorkbookData, file_path : String, source_file : String?) : Nil
       generator = CroupierGenerator.new
-      initial_values = Hash(String, BigFloat | String | Bool).new
-
-      # Convert data to Croupier format
-      data.each do |sheet_name, sheet_data|
-        sheet_data.each do |cell_ref, cell_data|
-          key = "#{sheet_name}!#{cell_ref}"
-
-          if cell_data.has_key?("formula")
-            formula = cell_data["formula"].to_s
-            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
-          elsif cell_data.has_key?("value")
-            value = cell_data["value"]
-            # Skip nil values
-            next if value.nil?
-            # Convert to appropriate type
-            case value
-            when String, Bool
-              initial_values[key] = value
-            when BigFloat
-              initial_values[key] = value
-            else
-              initial_values[key] = value.to_s
-            end
-          end
-        end
-      end
+      initial_values = populate_generator(data, generator)
 
       # Generate source code (entrypoint + optional chunk files for large sheets)
       source_file_for_binary = source_file || file_path

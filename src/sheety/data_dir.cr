@@ -1,4 +1,5 @@
 require "file_utils"
+require "openssl"
 {% unless flag?(:no_embedded_files) %}
   require "./embedded_files"
 {% end %}
@@ -37,6 +38,19 @@ module Sheety
       mtime = sheety_mtime
       return "unknown" unless mtime
       mtime.to_unix.to_s
+    end
+
+    # Calculate the SHA256 hash of a file's content, folded together with
+    # the sheety binary version, for content-based caching of generated
+    # binaries. Shared by the CLI launch path and the in-process rebuilder,
+    # which previously carried identical private copies.
+    def self.file_hash(filename : String) : String
+      digest = OpenSSL::Digest.new("SHA256")
+      File.open(filename, "rb") do |file|
+        digest.update(file)
+      end
+      digest.update(sheety_version)
+      digest.final.hexstring
     end
 
     # Check if sheety has been updated since data dir was initialized.

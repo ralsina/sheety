@@ -1,6 +1,7 @@
 require "big"
 require "termisu"
 require "yaml"
+require "./cell_refs"
 require "./importers/excel_exporter"
 {% unless flag?(:light_mode) %}
   require "./rebuilder"
@@ -164,7 +165,7 @@ module Sheety
           row_str = match[2]
 
           # Convert column string to column index
-          @active_col = col_to_num(col_str) - 1
+          @active_col = CellRefs.col_to_num(col_str) - 1
           # Convert row string to row index (1-based to 0-based)
           @active_row = row_str.to_i - 1
 
@@ -257,7 +258,7 @@ module Sheety
           col_str = match[1]
           row_str = match[2]
 
-          col = col_to_num(col_str) - 1
+          col = CellRefs.col_to_num(col_str) - 1
           row = row_str.to_i - 1
 
           # Check bounds
@@ -280,25 +281,6 @@ module Sheety
           @grid[row][col] = value unless value.empty?
         end
       end
-    end
-
-    private def col_to_num(col : String) : Int32
-      result = 0
-      col.each_char do |char|
-        result = result * 26 + (char.ord - 'A'.ord + 1)
-      end
-      result
-    end
-
-    private def num_to_col(num : Int32) : String
-      result = ""
-      n = num
-      while n > 0
-        n -= 1
-        result = ('A' + (n % 26)).to_s + result
-        n //= 26
-      end
-      result
     end
 
     private def handle_key_event(event : Termisu::Event::Key) : Nil
@@ -592,7 +574,7 @@ module Sheety
     end
 
     private def current_cell_ref : String
-      num_to_col(@active_col + 1) + (@active_row + 1).to_s
+      CellRefs.num_to_col(@active_col + 1) + (@active_row + 1).to_s
     end
 
     private def current_cell_formula : String
@@ -887,7 +869,7 @@ module Sheety
                           else
                             # Parse cell reference to get grid position
                             if match = cell_ref.match(/^([A-Za-z]+)(\d+)$/)
-                              col = col_to_num(match[1]) - 1
+                              col = CellRefs.col_to_num(match[1]) - 1
                               row = match[2].to_i - 1
                               if row >= 0 && row < @max_row && col >= 0 && col < @max_col
                                 @grid[row][col]
@@ -934,25 +916,10 @@ module Sheety
 
         # First, generate Crystal source code
         generator = CroupierGenerator.new
-        initial_values = Hash(String, BigFloat | String | Bool).new
 
         # Populate formulas and initial values from internal_format
         # This is the single source of truth for all cell data
-        internal_format.each do |sheet, cells|
-          cells.each do |cell_ref, cell_data|
-            key = sheet.empty? ? cell_ref : "#{sheet}!#{cell_ref}"
-
-            # Add formula if present
-            if cell_data.has_key?("formula")
-              generator.add_formula(cell_ref, cell_data["formula"].as(String), sheet)
-            end
-
-            # Add value as initial value (for all cells, with or without formulas)
-            if cell_data.has_key?("value")
-              initial_values[key] = coerce_to_initial_value(cell_data["value"])
-            end
-          end
-        end
+        initial_values = populate_generator_from_internal_format(internal_format, generator)
 
         # Generate the source code (interactive for TUI binary)
         temp_source = File.join(DataDir.path, "tmp", "#{File.basename(source_file, ext)}.cr")
@@ -984,24 +951,9 @@ module Sheety
       elsif ext == ".cr"
         # Generate Crystal source code
         generator = CroupierGenerator.new
-        initial_values = Hash(String, BigFloat | String | Bool).new
 
         # Populate formulas and initial values from internal_format
-        internal_format.each do |sheet, cells|
-          cells.each do |cell_ref, cell_data|
-            key = sheet.empty? ? cell_ref : "#{sheet}!#{cell_ref}"
-
-            # Add formula if present
-            if cell_data.has_key?("formula")
-              generator.add_formula(cell_ref, cell_data["formula"].as(String), sheet)
-            end
-
-            # Add value as initial value
-            if cell_data.has_key?("value")
-              initial_values[key] = coerce_to_initial_value(cell_data["value"])
-            end
-          end
-        end
+        initial_values = populate_generator_from_internal_format(internal_format, generator)
 
         # Generate the source code (non-interactive for standalone code generation)
         chunk_prefix = File.basename(source_file, File.extname(source_file))
@@ -1035,6 +987,33 @@ module Sheety
       end
 
       @termisu.render
+    end
+
+    # Populate a generator with formulas and initial values from the TUI's
+    # internal format. Unlike Spreadsheet.populate_generator, keys for the
+    # default (unnamed) sheet carry no sheet prefix — matching how generated
+    # programs key default-sheet cells — and values are set for formula cells
+    # too, so a rebuilt binary starts from the last displayed values.
+    private def populate_generator_from_internal_format(internal_format : Hash(String, Hash(String, Hash(String, Sheety::Functions::CellValue))), generator : CroupierGenerator) : Hash(String, BigFloat | String | Bool)
+      initial_values = Hash(String, BigFloat | String | Bool).new
+
+      internal_format.each do |sheet, cells|
+        cells.each do |cell_ref, cell_data|
+          key = sheet.empty? ? cell_ref : "#{sheet}!#{cell_ref}"
+
+          # Add formula if present
+          if cell_data.has_key?("formula")
+            generator.add_formula(cell_ref, cell_data["formula"].as(String), sheet)
+          end
+
+          # Add value as initial value (for all cells, with or without formulas)
+          if cell_data.has_key?("value")
+            initial_values[key] = coerce_to_initial_value(cell_data["value"])
+          end
+        end
+      end
+
+      initial_values
     end
 
     # Coerce a runtime cell value into the (BigFloat | String | Bool) union that
@@ -1076,7 +1055,7 @@ module Sheety
       current_sheet = @sheets[@current_sheet_idx]
       ui_metadata = {} of YAML::Any => YAML::Any
       ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(current_sheet)
-      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
+      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(CellRefs.num_to_col(@active_col + 1) + (@active_row + 1).to_s)
       yaml_any_structure[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
 
       yaml_any_structure
@@ -1141,7 +1120,7 @@ module Sheety
       # Add UI state
       ui_metadata = {} of YAML::Any => YAML::Any
       ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(@sheets[@current_sheet_idx])
-      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(num_to_col(@active_col + 1) + (@active_row + 1).to_s)
+      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(CellRefs.num_to_col(@active_col + 1) + (@active_row + 1).to_s)
 
       # Preserve spreadsheet_uuid if it exists
       begin
@@ -1220,7 +1199,7 @@ module Sheety
       # Render column headers (A, B, C, ...)
       col_x = @row_num_width + @spacer_width
       (@col_offset...end_col).each do |col_idx|
-        col_label = num_to_col(col_idx + 1)
+        col_label = CellRefs.num_to_col(col_idx + 1)
         draw_text_centered(col_x, @header_height, @cell_width, col_label, @fg_header, @bg_header, Termisu::Attribute::Bold | Termisu::Attribute::Reverse)
         col_x += @cell_width + 1
       end
@@ -1387,7 +1366,7 @@ module Sheety
       status_y = @header_height + 1 + @grid_height + @formula_bar_height
 
       sheet_name = @sheets[@current_sheet_idx]
-      cell_ref = num_to_col(@active_col + 1) + (@active_row + 1).to_s
+      cell_ref = CellRefs.num_to_col(@active_col + 1) + (@active_row + 1).to_s
 
       # Show notification or normal status text
       if notif = @notification

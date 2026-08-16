@@ -3,26 +3,11 @@ require "yaml"
 require "./croupier_generator"
 require "./spreadsheet"
 require "./data_dir"
-require "openssl"
 require "uuid"
 require "./importers/excel_importer"
 
 module Sheety
   class CLI
-    # Calculate SHA256 hash of a file for content-based caching
-    private def self.calculate_file_hash(filename : String) : String
-      digest = OpenSSL::Digest.new("SHA256")
-      File.open(filename, "rb") do |file|
-        digest.update(file)
-      end
-      # Fold in the sheety binary version so a sheety upgrade (rebuilt binary,
-      # new generator logic, dependency bumps) invalidates stale cached
-      # generated binaries. Without this, unchanged spreadsheet content would
-      # reuse a binary built by an older sheety.
-      digest.update(DataDir.sheety_version)
-      digest.final.hexstring
-    end
-
     # Get or create a persistent UUID for the spreadsheet
     # The UUID is stored in the YAML file's _ui_state section
     # and persists across rebuilds as long as the file exists
@@ -81,7 +66,7 @@ module Sheety
       end
 
       # Calculate hash of source file for caching (for binary naming)
-      file_hash = calculate_file_hash(filename)
+      file_hash = DataDir.file_hash(filename)
 
       # Use first 16 characters of hash for binary/source filenames
       hash_short = file_hash[0...16]
@@ -129,30 +114,9 @@ module Sheety
       generator.set_state_file_path(croupier_state)
       generator.set_kv_store_path(kv_store)
       generator.set_spreadsheet_uuid(spreadsheet_uuid)
-      initial_values = Hash(String, BigFloat | String | Bool).new
 
-      # Convert data to Croupier format
-      data.each do |sheet_name, sheet_data|
-        sheet_data.each do |cell_ref, cell_data|
-          key = "#{sheet_name}!#{cell_ref}"
-
-          if cell_data.has_key?("formula")
-            formula = cell_data["formula"].to_s
-            generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
-          elsif cell_data.has_key?("value")
-            value = cell_data["value"]
-            # Skip nil values
-            next if value.nil?
-            # Convert to appropriate type
-            case value
-            when String, BigFloat, Bool
-              initial_values[key] = value
-            else
-              initial_values[key] = value.to_s
-            end
-          end
-        end
-      end
+      # Convert data to Croupier format (formulas + initial values)
+      initial_values = Spreadsheet.populate_generator(data, generator)
 
       # Generate Croupier task source code with initial values
       generated = generator.generate_source(initial_values, true, filename, intermediate_file, hash_short)

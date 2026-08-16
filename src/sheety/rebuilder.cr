@@ -1,8 +1,8 @@
 require "big"
 require "yaml"
-require "openssl"
 require "uuid"
 require "./data_dir"
+require "./yaml_parser"
 # Require only the specific modules we need, not the main sheety.cr which runs the CLI
 require "./ast"
 require "./ast_builder"
@@ -62,7 +62,7 @@ module Sheety
 
       # Calculate hash of source file for caching (for binary naming)
       # Use the intermediate file if available, otherwise the original file
-      file_hash = calculate_file_hash(source_file)
+      file_hash = DataDir.file_hash(source_file)
 
       # Use first 16 characters of hash for binary/source filenames
       hash_short = file_hash[0...16]
@@ -121,17 +121,6 @@ module Sheety
       binary_name
     end
 
-    private def calculate_file_hash(filename : String) : String
-      digest = OpenSSL::Digest.new("SHA256")
-      File.open(filename, "rb") do |file|
-        digest.update(file)
-      end
-      # Fold in the sheety binary version so a sheety upgrade invalidates
-      # stale cached binaries (mirrors CLI.calculate_file_hash).
-      digest.update(DataDir.sheety_version)
-      digest.final.hexstring
-    end
-
     private def get_or_create_spreadsheet_uuid(filename : String) : String
       uuid = nil
 
@@ -151,32 +140,11 @@ module Sheety
       unless uuid
         uuid = UUID.random.to_s
 
-        # Read the current YAML content
+        # Read the current YAML content and make sure it carries the UUID
         yaml_content = File.read(filename)
-
-        # Check if _ui_state section exists and if it has spreadsheet_uuid
-        if yaml_content.includes?("_ui_state:")
-          if yaml_content.includes?("spreadsheet_uuid:")
-            # Already has spreadsheet_uuid, try to extract it
-            yaml_content.each_line do |line|
-              if line.includes?("spreadsheet_uuid:")
-                match = line.match(/spreadsheet_uuid:\s*(\S+)/)
-                if match
-                  uuid = match[1]
-                  break
-                end
-              end
-            end
-          else
-            # Append the UUID to existing _ui_state section
-            yaml_content = yaml_content.gsub(/(_ui_state:)/, "\\1\n  spreadsheet_uuid: #{uuid}")
-            File.write(filename, yaml_content)
-          end
-        else
-          # Add _ui_state section at the end
-          yaml_content = yaml_content + "\n_ui_state:\n  spreadsheet_uuid: #{uuid}\n"
-          File.write(filename, yaml_content)
-        end
+        effective_uuid, new_content = YAMLParser.ensure_uuid_in_yaml(yaml_content, uuid)
+        File.write(filename, new_content) if new_content != yaml_content
+        uuid = effective_uuid
       end
 
       uuid
@@ -195,34 +163,10 @@ module Sheety
             formula = cell_data["formula"].to_s
             generator.add_formula(cell_ref.to_s, formula, sheet_name.to_s)
           elsif cell_data.has_key?("value")
-            value = parse_value(cell_data["value"])
+            value = YAMLParser.parse_value(cell_data["value"])
             initial_values[key] = value
           end
         end
-      end
-    end
-
-    private def parse_value(value : YAML::Any) : Functions::CellValue
-      raw = value.raw
-
-      case raw
-      when String
-        # Check if it's a boolean
-        if raw == "true"
-          true
-        elsif raw == "false"
-          false
-        else
-          raw
-        end
-      when Int32, Int64
-        BigFloat.new(raw.to_f, precision: 64)
-      when BigFloat
-        raw
-      when Bool
-        raw
-      else
-        raw.to_s
       end
     end
   end
