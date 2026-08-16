@@ -1,9 +1,17 @@
 require "./cell_refs"
+require "./errors"
 
 module Sheety
   # Extracts cell dependencies from formula AST for Croupier task inputs
   class DependencyExtractor
     include AST
+
+    # Sanity cap on expanded range size. A typo like A1:B99999999 would
+    # otherwise expand into billions of dependency keys (and just as many
+    # kv entries at runtime) before anything could stop it. Formulas using
+    # oversized ranges raise FormulaError; the generator turns those into
+    # #VALUE! tasks instead of hanging or exhausting memory.
+    MAX_RANGE_CELLS = 65536
 
     # Extract cell references from an AST node
     def extract(node : Node, sheet : String? = nil) : Set(String)
@@ -89,11 +97,22 @@ module Sheety
 
     # Helper to expand a range like "A1:B2" into cell references
     private def expand_range(start_col : String, start_row : Int32, end_col : String, end_row : Int32, sheet : String?) : Array(String)
-      result = [] of String
-
       # Convert column letters to numbers
       start_col_num = CellRefs.col_to_num(start_col)
       end_col_num = CellRefs.col_to_num(end_col)
+
+      # Reject oversized ranges before expanding (reversed ranges expand to
+      # nothing, as they always did).
+      rows = end_row - start_row + 1
+      columns = end_col_num - start_col_num + 1
+      if rows > 0 && columns > 0 && rows * columns > MAX_RANGE_CELLS
+        raise FormulaError.new(
+          "Range #{start_col}#{start_row}:#{end_col}#{end_row} expands to #{rows * columns} cells " \
+          "(limit is #{MAX_RANGE_CELLS})"
+        )
+      end
+
+      result = [] of String
 
       # Iterate through rows and columns
       (start_row..end_row).each do |row|

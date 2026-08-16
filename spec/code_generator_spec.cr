@@ -1021,3 +1021,35 @@ describe Sheety::YAMLParser do
     end
   end
 end
+
+describe Sheety::DependencyExtractor do
+  describe "range cap" do
+    it "expands ranges within the cap" do
+      extractor = Sheety::DependencyExtractor.new
+      ast = Sheety.parse_to_ast("=SUM(A1:B2)")
+      deps = extractor.extract(ast, "Sheet1")
+      deps.should contain("Sheet1!A1")
+      deps.should contain("Sheet1!B2")
+      deps.size.should eq(4)
+    end
+
+    it "raises FormulaError for ranges beyond the cap" do
+      extractor = Sheety::DependencyExtractor.new
+      ast = Sheety.parse_to_ast("=SUM(A1:B99999999)")
+      expect_raises(Sheety::FormulaError, /expands to/) do
+        extractor.extract(ast, "Sheet1")
+      end
+    end
+  end
+end
+
+describe Sheety::CroupierGenerator do
+  describe "oversized ranges" do
+    it "degrades to a #VALUE! task instead of expanding" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("C1", "=SUM(A1:B99999999)", "Sheet1")
+      source = gen.generate_source.entrypoint
+      source.should contain("#VALUE!")
+    end
+  end
+end
