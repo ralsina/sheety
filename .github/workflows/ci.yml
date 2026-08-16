@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Build + Specs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.21.0"
+      - name: Install dependencies
+        run: shards install
+      - name: Format check
+        run: crystal tool format --check src spec
+      - name: Build
+        run: shards build
+      - name: Specs
+        run: crystal spec --order=random
+
+  lint:
+    name: Ameba
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.21.0"
+      # ameba releases ship no binaries; build it from a pinned tag.
+      # Scoped to src+spec: examples/ contains generated code (see .ameba.yml).
+      - name: Install ameba
+        run: |
+          git clone --depth 1 --branch v1.6.4 https://github.com/crystal-ameba/ameba /tmp/ameba
+          cd /tmp/ameba && shards install
+          crystal build src/ameba.cr -o "$HOME/ameba"
+      - name: Run ameba
+        run: $HOME/ameba src spec
+
+  e2e:
+    name: End-to-end (compile a spreadsheet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: "1.21.0"
+      - name: Install dependencies
+        run: shards install
+      - name: Build sheety
+        run: shards build
+      - name: Compile a spreadsheet into a binary
+        run: |
+          mkdir -p /tmp/smoke
+          cat > /tmp/smoke/smoke.yaml <<'YAML'
+          Sheet1:
+            A1: {value: 10}
+            A2: {value: 20}
+            A3: {value: 30}
+            B1: {value: apple}
+            B2: {value: banana}
+            B3: {value: cherry}
+            D1: {formula: "=VLOOKUP(\"banana\", B1:B3, 1, FALSE)"}
+            D2: {formula: "=COUNTIF(A1:A3, \">15\")"}
+            D3: {formula: "=MEDIAN(A1:A3)"}
+            D4: {formula: "=AND(A1:A3)"}
+            D5: {formula: "=SWITCH(B1, \"apple\", \"fruit\", \"other\")"}
+          YAML
+          # This is the only place tui.cr, rebuilder.cr and croupier_helpers.cr
+          # get compiled: they only exist inside generated binaries. The run
+          # itself needs a terminal (fails with /dev/tty error), so success is
+          # judged on the build step's output.
+          output=$(bin/sheety /tmp/smoke/smoke.yaml 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -q "Built successfully" \
+            || { echo "::error::generated binary failed to build"; exit 1; }
+      - name: Second run hits the binary cache
+        run: |
+          output=$(bin/sheety /tmp/smoke/smoke.yaml 2>&1) || true
+          echo "$output"
+          echo "$output" | grep -q "Using cached binary" \
+            || { echo "::error::expected cache hit on second run"; exit 1; }
+      - name: Format conversion still works
+        run: |
+          bin/sheety /tmp/smoke/smoke.yaml --save-to=/tmp/smoke/smoke.cr
+          test -s /tmp/smoke/smoke.cr

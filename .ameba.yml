@@ -1,0 +1,18 @@
+# examples/ holds generated spreadsheets (e.g. the ~20k-line
+# test_chained_100x100.cr emitted by sheety itself); linting generated
+# code only produces noise. Run ameba as `ameba src spec` to keep it fast.
+ExcludedPaths:
+  - examples
+  - lib
+  - bin
+
+Metrics/CyclomaticComplexity:
+  # The parser's filter chain, the code generator's function dispatch,
+  # the Excel function implementations and the TUI key handlers are
+  # inherently branchy; refactoring them for the metric's sake isn't
+  # worth the regression risk while they lack dedicated specs.
+  Enabled: false
+
+Documentation/DocumentationAdmonition:
+  # TODO comments are allowed
+  Enabled: false
