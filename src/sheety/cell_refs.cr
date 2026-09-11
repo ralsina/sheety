@@ -6,6 +6,56 @@ module Sheety
   # TUI, the dependency extractor, the runtime helpers baked into generated
   # binaries, and the Excel exporter; they are all defined here now.
   module CellRefs
+    # Highest row/column sheety's fixed 1000x1000 grid addresses. Whole-column
+    # ranges (A:B) clamp their rows to this.
+    GRID_MAX = 1000
+
+    # Normalized range bounds: start/end column letters and 1-based rows.
+    record RangeBounds, start_col : String, start_row : Int32, end_col : String, end_row : Int32
+
+    # Parse an A1-style range into normalized bounds, or return nil when the
+    # range is unsupported.
+    #
+    # Accepted forms (any case, with or without $ anchors):
+    # - "A1:B5"      concrete range; reversed bounds (e.g. "B2:A1") are
+    #                swapped, matching Excel's normalization
+    # - "A:B"        whole-column range, clamped to rows 1..GRID_MAX
+    #
+    # Whole-row ranges ("1:10") and anything else return nil; callers treat
+    # that as a loud per-formula failure rather than silently computing
+    # over an empty set of cells.
+    def self.parse_range(range : String) : RangeBounds?
+      cleaned = range.upcase.delete('$').strip
+
+      if match = cleaned.match(/\A([A-Z]+)(\d+):([A-Z]+)(\d+)\z/)
+        bounds = RangeBounds.new(match[1], match[2].to_i, match[3], match[4].to_i)
+        normalize_bounds(bounds)
+      elsif match = cleaned.match(/\A([A-Z]+):([A-Z]+)\z/)
+        bounds = RangeBounds.new(match[1], 1, match[2], GRID_MAX)
+        normalize_bounds(bounds)
+      end
+    end
+
+    # Parse a single cell reference ("A1", "$B$2") into 1-based column/row,
+    # or nil if it doesn't have that shape.
+    def self.parse_ref(ref : String) : {col: Int32, row: Int32}?
+      if match = ref.upcase.delete('$').strip.match(/\A([A-Z]+)(\d+)\z/)
+        {col: col_to_num(match[1]), row: match[2].to_i}
+      end
+    end
+
+    # Swap range endpoints so start <= end on both axes, as Excel does for
+    # reversed references like B2:A1.
+    private def self.normalize_bounds(bounds : RangeBounds) : RangeBounds
+      start_col, end_col = bounds.start_col, bounds.end_col
+      if col_to_num(start_col) > col_to_num(end_col)
+        start_col, end_col = end_col, start_col
+      end
+      start_row = Math.min(bounds.start_row, bounds.end_row)
+      end_row = Math.max(bounds.start_row, bounds.end_row)
+      RangeBounds.new(start_col, start_row, end_col, end_row)
+    end
+
     # Convert column letter(s) to a 1-based number ("A" -> 1, "AA" -> 27).
     # Input is upcased, so callers may pass either case.
     def self.col_to_num(col : String) : Int32

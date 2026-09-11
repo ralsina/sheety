@@ -412,26 +412,26 @@ describe Sheety::Functions do
 
     it "AND returns true only if all are true" do
       result = Sheety::Functions.and([true, true, true] of Sheety::Functions::CellValue)
-      result.should eq(true)
+      result.should be_true
 
       result = Sheety::Functions.and([true, false, true] of Sheety::Functions::CellValue)
-      result.should eq(false)
+      result.should be_false
     end
 
     it "OR returns true if any is true" do
       result = Sheety::Functions.or([false, true, false] of Sheety::Functions::CellValue)
-      result.should eq(true)
+      result.should be_true
 
       result = Sheety::Functions.or([false, false] of Sheety::Functions::CellValue)
-      result.should eq(false)
+      result.should be_false
     end
 
     it "NOT inverts boolean" do
       result = Sheety::Functions.not(true)
-      result.should eq(false)
+      result.should be_false
 
       result = Sheety::Functions.not(false)
-      result.should eq(true)
+      result.should be_true
     end
   end
 
@@ -474,35 +474,35 @@ describe Sheety::Functions do
 
   describe "comparison functions" do
     it "EQ tests equality" do
-      Sheety::Functions.eq(1.0, 1.0).should eq(true)
-      Sheety::Functions.eq(1.0, 2.0).should eq(false)
+      Sheety::Functions.eq(1.0, 1.0).should be_true
+      Sheety::Functions.eq(1.0, 2.0).should be_false
     end
 
     it "NE tests inequality" do
-      Sheety::Functions.ne(1.0, 2.0).should eq(true)
-      Sheety::Functions.ne(1.0, 1.0).should eq(false)
+      Sheety::Functions.ne(1.0, 2.0).should be_true
+      Sheety::Functions.ne(1.0, 1.0).should be_false
     end
 
     it "LT tests less than" do
-      Sheety::Functions.lt(1.0, 2.0).should eq(true)
-      Sheety::Functions.lt(2.0, 1.0).should eq(false)
+      Sheety::Functions.lt(1.0, 2.0).should be_true
+      Sheety::Functions.lt(2.0, 1.0).should be_false
     end
 
     it "GT tests greater than" do
-      Sheety::Functions.gt(2.0, 1.0).should eq(true)
-      Sheety::Functions.gt(1.0, 2.0).should eq(false)
+      Sheety::Functions.gt(2.0, 1.0).should be_true
+      Sheety::Functions.gt(1.0, 2.0).should be_false
     end
 
     it "LE tests less than or equal" do
-      Sheety::Functions.le(1.0, 1.0).should eq(true)
-      Sheety::Functions.le(1.0, 2.0).should eq(true)
-      Sheety::Functions.le(2.0, 1.0).should eq(false)
+      Sheety::Functions.le(1.0, 1.0).should be_true
+      Sheety::Functions.le(1.0, 2.0).should be_true
+      Sheety::Functions.le(2.0, 1.0).should be_false
     end
 
     it "GE tests greater than or equal" do
-      Sheety::Functions.ge(2.0, 2.0).should eq(true)
-      Sheety::Functions.ge(2.0, 1.0).should eq(true)
-      Sheety::Functions.ge(1.0, 2.0).should eq(false)
+      Sheety::Functions.ge(2.0, 2.0).should be_true
+      Sheety::Functions.ge(2.0, 1.0).should be_true
+      Sheety::Functions.ge(1.0, 2.0).should be_false
     end
   end
 
@@ -637,8 +637,8 @@ describe Sheety::Functions do
     end
 
     it "EXACT compares text exactly" do
-      Sheety::Functions.exact("hello", "hello").should eq(true)
-      Sheety::Functions.exact("hello", "HELLO").should eq(false)
+      Sheety::Functions.exact("hello", "hello").should be_true
+      Sheety::Functions.exact("hello", "HELLO").should be_false
     end
 
     it "REPT repeats text" do
@@ -1050,6 +1050,55 @@ describe Sheety::CroupierGenerator do
       gen.add_formula("C1", "=SUM(A1:B99999999)", "Sheet1")
       source = gen.generate_source.entrypoint
       source.should contain("#VALUE!")
+    end
+  end
+end
+
+describe Sheety::CodeGenerator do
+  describe "range normalization" do
+    it "strips $ anchors from concrete ranges" do
+      ast = Sheety.parse_to_ast("=SUM($A$1:$B$5)")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      code = Sheety::CodeGenerator.new.generate(ast, context)
+      code.should contain(%(fetch_cell_range("Sheet1", "A", 1, "B", 5)))
+    end
+
+    it "normalizes reversed ranges" do
+      ast = Sheety.parse_to_ast("=SUM(B2:A1)")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      code = Sheety::CodeGenerator.new.generate(ast, context)
+      code.should contain(%(fetch_cell_range("Sheet1", "A", 1, "B", 2)))
+    end
+
+    it "clamps whole-column ranges to the grid height" do
+      ast = Sheety.parse_to_ast("=SUM(B:C)")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      code = Sheety::CodeGenerator.new.generate(ast, context)
+      code.should contain(%(fetch_cell_range("Sheet1", "B", 1, "C", #{Sheety::CellRefs::GRID_MAX})))
+    end
+
+    it "raises on unsupported (whole-row) ranges instead of emitting []" do
+      ast = Sheety.parse_to_ast("=SUM(1:2)")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      expect_raises(Sheety::FormulaError, "Unsupported range reference: 1:2") do
+        Sheety::CodeGenerator.new.generate(ast, context)
+      end
+    end
+
+    it "strips $ anchors from cell refs so the k/v key matches" do
+      ast = Sheety.parse_to_ast("=$B$3+1")
+      context = Sheety::CodeGenerator::Context.new("Sheet1")
+      code = Sheety::CodeGenerator.new.generate(ast, context)
+      code.should contain(%(fetch_cell("Sheet1!B3")))
+    end
+
+    it "renders named references as #NAME? at call sites too" do
+      ast = Sheety.parse_to_ast("=MyRange")
+      gen = Sheety::CodeGenerator.new
+      params = gen.reference_params(ast, "Sheet1")
+      params.size.should eq(1)
+      params[0].kind.should eq(:named)
+      gen.fetch_expression_for(params[0]).should contain("#NAME?")
     end
   end
 end

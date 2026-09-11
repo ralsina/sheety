@@ -1,5 +1,7 @@
 require "big"
 require "openssl"
+require "./cell_refs"
+require "./errors"
 
 module Sheety
   # Generates Crystal code from Excel formula AST
@@ -74,17 +76,21 @@ module Sheety
     # for a task's call site. Mirrors the concrete CellRef/RangeRef rendering.
     def fetch_expression_for(param : ReferenceParam) : String
       case param.kind
-      when :cell, :named
+      when :cell
         key = param.sheet ? "#{param.sheet}!#{param.reference}" : param.reference
         "fetch_cell(#{key.inspect})"
+      when :named
+        # Named ranges have no resolution mechanism; both the shared-helper
+        # and inline paths must produce the same #NAME? outcome.
+        "Sheety::Functions::ErrorValue.new(\"#NAME?\")"
       when :range, :range2d
-        if match = param.reference.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/)
-          sheet = param.sheet
-          helper = param.kind == :range2d ? "fetch_cell_range_2d" : "fetch_cell_range"
-          "#{helper}(#{sheet.inspect}, #{match[1].inspect}, #{match[2]}, #{match[3].inspect}, #{match[4]})"
-        else
-          "[]"
+        bounds = CellRefs.parse_range(param.reference)
+        unless bounds
+          raise FormulaError.new("Unsupported range reference: #{param.reference}")
         end
+        sheet = param.sheet
+        helper = param.kind == :range2d ? "fetch_cell_range_2d" : "fetch_cell_range"
+        "#{helper}(#{sheet.inspect}, #{bounds.start_col.inspect}, #{bounds.start_row}, #{bounds.end_col.inspect}, #{bounds.end_row})"
       else
         "fetch_cell(#{param.reference.inspect})"
       end
@@ -135,7 +141,8 @@ module Sheety
     private def visit(node : CellRef, context : Context) : String
       return next_param(context) if context.parameterized?
 
-      ref = node.reference.upcase
+      # Strip $ anchors: the k/v store keys cells by bare reference.
+      ref = node.reference.upcase.delete('$')
       sheet = node.sheet || context.sheet
 
       # Generate code to fetch using helper function
@@ -146,26 +153,21 @@ module Sheety
     private def visit(node : RangeRef, context : Context) : String
       return next_param(context) if context.parameterized?
 
-      # Parse range and generate call to fetch_cell_range helper
-      range = node.range
+      # Normalize (strip $ anchors, swap reversed bounds, clamp whole-column
+      # ranges); unsupported forms raise so the caller can fail the formula
+      # loudly instead of computing over an empty cell set.
+      bounds = CellRefs.parse_range(node.range)
+      unless bounds
+        raise FormulaError.new("Unsupported range reference: #{node.range}")
+      end
       sheet = node.sheet || context.sheet
 
-      # Parse range (e.g., "A1:B5")
-      if match = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/)
-        start_col = match[1]
-        start_row = match[2]
-        end_col = match[3]
-        end_row = match[4]
+      # Table arguments (VLOOKUP et al.) fetch the range as a 2D matrix;
+      # every other range fetches a flat, row-major array.
+      helper = context.table_arg? ? "fetch_cell_range_2d" : "fetch_cell_range"
 
-        # Table arguments (VLOOKUP et al.) fetch the range as a 2D matrix;
-        # every other range fetches a flat, row-major array.
-        helper = context.table_arg? ? "fetch_cell_range_2d" : "fetch_cell_range"
-
-        # Generate call to helper function
-        "#{helper}(#{sheet.inspect}, #{start_col.inspect}, #{start_row}, #{end_col.inspect}, #{end_row})"
-      else
-        "[]"
-      end
+      # Generate call to helper function
+      "#{helper}(#{sheet.inspect}, #{bounds.start_col.inspect}, #{bounds.start_row}, #{bounds.end_col.inspect}, #{bounds.end_row})"
     end
 
     private def visit(node : NamedRef, context : Context) : String
@@ -465,9 +467,9 @@ module Sheety
     private def collect_references(node : Node, params : Array(ReferenceParam), sheet : String?, table_arg : Bool = false) : Nil
       case node
       when CellRef
-        params << ReferenceParam.new(:cell, node.reference.upcase, node.sheet || sheet)
+        params << ReferenceParam.new(:cell, node.reference.upcase.delete('$'), node.sheet || sheet)
       when RangeRef
-        params << ReferenceParam.new(table_arg ? :range2d : :range, node.range.upcase, node.sheet || sheet)
+        params << ReferenceParam.new(table_arg ? :range2d : :range, node.range.upcase.delete('$'), node.sheet || sheet)
       when NamedRef
         params << ReferenceParam.new(:named, node.name, nil)
       when UnaryOp

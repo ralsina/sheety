@@ -45,27 +45,27 @@ module Sheety
     end
 
     private def visit(node : CellRef, dependencies : Set(String), sheet : String?) : Nil
-      ref = node.reference.upcase
+      # Strip $ anchors so dependencies match the keys the generated code
+      # actually fetches.
+      ref = node.reference.upcase.delete('$')
       cell_sheet = node.sheet || sheet
       key = cell_sheet ? "#{cell_sheet}!#{ref}" : ref
       dependencies.add(key)
     end
 
     private def visit(node : RangeRef, dependencies : Set(String), sheet : String?) : Nil
-      # Expand range into individual cell references
-      range = node.range.upcase
+      # Normalize through CellRefs.parse_range so the extracted dependencies
+      # cover exactly the cells the generated code will fetch ($ anchors,
+      # reversed bounds, whole-column clamping). Unsupported ranges raise:
+      # the generator turns those formulas into loud #VALUE! tasks rather
+      # than silently depending on nothing.
+      bounds = CellRefs.parse_range(node.range)
+      raise FormulaError.new("Unsupported range reference: #{node.range}") unless bounds
       cell_sheet = node.sheet || sheet
 
-      if match = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/)
-        start_col = match[1]
-        start_row = match[2].to_i
-        end_col = match[3]
-        end_row = match[4].to_i
-
-        # Add each cell in range as a dependency
-        expand_range(start_col, start_row, end_col, end_row, cell_sheet).each do |ref|
-          dependencies.add(ref)
-        end
+      # Add each cell in range as a dependency
+      expand_range(bounds.start_col, bounds.start_row, bounds.end_col, bounds.end_row, cell_sheet).each do |ref|
+        dependencies.add(ref)
       end
     end
 

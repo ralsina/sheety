@@ -68,6 +68,53 @@ describe Sheety do
     end
   end
 
+  describe "CellRefs.parse_range" do
+    it "parses a concrete range" do
+      bounds = Sheety::CellRefs.parse_range("A1:B5")
+      bounds.should eq(Sheety::CellRefs::RangeBounds.new("A", 1, "B", 5))
+    end
+
+    it "is case-insensitive and strips $ anchors" do
+      bounds = Sheety::CellRefs.parse_range("$a$1:$B$5")
+      bounds.should eq(Sheety::CellRefs::RangeBounds.new("A", 1, "B", 5))
+    end
+
+    it "normalizes reversed bounds like Excel" do
+      Sheety::CellRefs.parse_range("B2:A1").should eq(Sheety::CellRefs::RangeBounds.new("A", 1, "B", 2))
+      Sheety::CellRefs.parse_range("C1:A3").should eq(Sheety::CellRefs::RangeBounds.new("A", 1, "C", 3))
+      Sheety::CellRefs.parse_range("B5:A1").should eq(Sheety::CellRefs::RangeBounds.new("A", 1, "B", 5))
+    end
+
+    it "clamps whole-column ranges to the grid height" do
+      bounds = Sheety::CellRefs.parse_range("B:C")
+      bounds.should eq(Sheety::CellRefs::RangeBounds.new("B", 1, "C", Sheety::CellRefs::GRID_MAX))
+    end
+
+    it "rejects whole-row ranges" do
+      Sheety::CellRefs.parse_range("1:10").should be_nil
+    end
+
+    it "rejects single references and junk" do
+      Sheety::CellRefs.parse_range("A1").should be_nil
+      Sheety::CellRefs.parse_range("banana").should be_nil
+      Sheety::CellRefs.parse_range("").should be_nil
+    end
+  end
+
+  describe "CellRefs.parse_ref" do
+    it "parses plain and anchored references" do
+      Sheety::CellRefs.parse_ref("A1").should eq({col: 1, row: 1})
+      Sheety::CellRefs.parse_ref("$B$27").should eq({col: 2, row: 27})
+      Sheety::CellRefs.parse_ref("aa10").should eq({col: 27, row: 10})
+    end
+
+    it "rejects non-references" do
+      Sheety::CellRefs.parse_ref("SUM").should be_nil
+      Sheety::CellRefs.parse_ref("A").should be_nil
+      Sheety::CellRefs.parse_ref("1").should be_nil
+    end
+  end
+
   describe "Operator precedence with ranges" do
     it "handles colon operator with correct precedence" do
       # Colon should have higher precedence than arithmetic
