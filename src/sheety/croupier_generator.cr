@@ -40,6 +40,17 @@ module Sheety
     SPLIT_THRESHOLD = 500
     CHUNK_SIZE      = 500
 
+    # One formula's precomputed artifacts, built once by `build_plans` and
+    # shared by the setup, shape-helper and task-registration sections.
+    # `ast`/`calc_code` are nil/"" for formulas with a hard problem (they
+    # compile to #VALUE! tasks instead).
+    private record Plan,
+      info : FormulaInfo,
+      ast : AST::Node?,
+      calc_code : String,
+      dependencies : Set(String),
+      problem : String?
+
     @formulas : Hash(String, FormulaInfo)
     @generator : CodeGenerator
     @extractor : DependencyExtractor
@@ -50,6 +61,10 @@ module Sheety
     # Maps FormulaInfo#key -> index of its shared calc_shape_N helper.
     # Built once per generate_source call; nil outside that scope.
     @shape_assignment : Hash(String, Int32)?
+    # Human-readable per-formula problems found by the last generate_source
+    # call ("Sheet1!B2: unsupported range ..."). Exposed so callers and
+    # specs can assert on what users are warned about.
+    getter validation_problems : Array(String)
 
     def initialize
       @formulas = Hash(String, FormulaInfo).new
@@ -60,6 +75,7 @@ module Sheety
       @spreadsheet_uuid = nil
       @original_filename = nil
       @shape_assignment = nil
+      @validation_problems = Array(String).new
     end
 
     # Set the original filename (for save functionality)
@@ -108,6 +124,66 @@ module Sheety
       key.gsub(/[!\/]/, "_")
     end
 
+    # Parse and lower every formula once, collecting per-formula problems
+    # (unparseable formulas, unsupported ranges, oversized ranges, named
+    # ranges) instead of failing the whole generation. Hard problems become
+    # #VALUE! tasks; named-range formulas keep their (naturally #NAME?)
+    # tasks. Everything found lands in validation_problems so callers can
+    # warn the user once, in one block.
+    private def build_plans : Array(Plan)
+      plans = Array(Plan).new
+      problems = Array(String).new
+
+      @formulas.each do |_, info|
+        formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
+
+        ast = parse_formula(formula)
+        if ast.nil?
+          problems << "#{info.key}: #{formula.inspect} could not be parsed; the cell will show #VALUE!"
+          plans << Plan.new(info, nil, "", Set(String).new, "unparseable formula")
+          next
+        end
+
+        # Named ranges parse but have no resolution mechanism; the task will
+        # show #NAME?. Warn instead of failing silently.
+        named = named_references(ast).uniq
+        unless named.empty?
+          problems << "#{info.key}: named range#{named.size > 1 ? "s" : ""} #{named.join(", ")} not supported; the cell will show #NAME?"
+        end
+
+        begin
+          calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
+          dependencies = @extractor.extract(ast, info.sheet)
+          plans << Plan.new(info, ast, calc_code, dependencies, nil)
+        rescue ex : FormulaError
+          problems << "#{info.key}: #{ex.message}; the cell will show #VALUE!"
+          plans << Plan.new(info, nil, "", Set(String).new, ex.message || "invalid formula")
+        end
+      end
+
+      @validation_problems = problems
+      plans
+    end
+
+    # Collect the names of all named-range references in an AST.
+    private def named_references(node : AST::Node) : Array(String)
+      names = Array(String).new
+      case node
+      when AST::NamedRef
+        names << node.name
+      when AST::UnaryOp
+        names.concat(named_references(node.operand))
+      when AST::BinaryOp
+        names.concat(named_references(node.left))
+        names.concat(named_references(node.right))
+      when AST::FunctionCall
+        node.arguments.each { |argument| names.concat(named_references(argument)) }
+      when AST::ArrayConstant
+        node.elements.each { |element| names.concat(named_references(element)) }
+      end
+      names
+    end
+
     # Generate Crystal source code for all tasks.
     # Returns a GeneratedSource: the entrypoint program plus, for large sheets,
     # auxiliary chunk files the entrypoint requires. Callers write the entrypoint
@@ -115,9 +191,17 @@ module Sheety
     # `chunk_prefix` names the chunk files (e.g. "abc123" -> "abc123_tasks_0.cr")
     # so sheets sharing a tmp dir don't collide; required only when splitting.
     def generate_source(initial_values : Hash(String, BigFloat | String | Bool) = Hash(String, BigFloat | String | Bool).new, interactive : Bool = false, source_file : String? = nil, intermediate_file : String? = nil, chunk_prefix : String = "sheety") : GeneratedSource
+      plans = build_plans
+      unless @validation_problems.empty?
+        STDERR.puts "\nWarning: #{@validation_problems.size} formula problem(s) detected:"
+        @validation_problems.each do |problem|
+          STDERR.puts "  #{problem}"
+        end
+      end
+
       if interactive
         # For interactive mode, require termisu instead of tablo
-        source = %{
+        source = %(
           require "croupier"
           require "termisu"
           require "../src/sheety/tui"
@@ -127,9 +211,9 @@ module Sheety
           # Auto-generated Excel formula tasks for Croupier
           # Generated by Sheety
 
-        }
+        )
       else
-        source = %{
+        source = %(
           require "croupier"
           require "tablo"
           require "../src/sheety/functions/registry"
@@ -138,11 +222,11 @@ module Sheety
           # Auto-generated Excel formula tasks for Croupier
           # Generated by Sheety
 
-        }
+        )
       end
 
       # First add setup code (initial values)
-      source += generate_setup_code(initial_values)
+      source += generate_setup_code(initial_values, plans)
       source += "\n\n"
 
       # Ensure directories exist for state files
@@ -176,14 +260,14 @@ module Sheety
       # shape. Each parseable formula's task body becomes a call to its helper,
       # so a formula repeated across many cells only generates its calculation
       # logic once.
-      source += generate_shape_helpers
+      source += generate_shape_helpers(plans)
       source += "\n\n"
 
       # Then register all formula tasks via a single data-driven loop (one
       # Croupier::Task.new call site) rather than a literal Task.new block per
       # cell. For large sheets the task table is split across chunk files to
       # keep the Crystal compiler's peak memory low.
-      reg_entrypoint, aux_files, did_split = build_task_registration(chunk_prefix)
+      reg_entrypoint, aux_files, did_split = build_task_registration(chunk_prefix, plans)
       source += reg_entrypoint
       source += "\n\n"
 
@@ -209,29 +293,27 @@ module Sheety
     end
 
     # Generate code to set initial values
-    private def generate_setup_code(initial_values : Hash(String, BigFloat | String | Bool)) : String
+    private def generate_setup_code(initial_values : Hash(String, BigFloat | String | Bool), plans : Array(Plan)) : String
       # Collect all unique ranges from formulas
       ranges = Set(NamedTuple(sheet: String, start_col: String, start_row: Int32, end_col: String, end_row: Int32)).new
 
-      @formulas.each do |_, info|
-        formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
-        ast = parse_formula(formula)
-        next if ast.nil?
+      # Find range references directly in the calc code (only valid plans
+      # carry calc code). The bounds are already normalized by the code
+      # generator, so the emitted calls match what the tasks will fetch.
+      plans.each do |plan|
+        calc_code = plan.calc_code
+        next if calc_code.empty?
+        next unless calc_code.includes?("fetch_cell_range") # also matches fetch_cell_range_2d
 
-        # Find range references directly in the calc code
-        calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
-        if calc_code.includes?("fetch_cell_range") # also matches fetch_cell_range_2d
-          # Extract all range parameters (not just the first one); both
-          # helpers take identical arguments, so one pattern covers them.
-          calc_code.scan(/fetch_cell_range(?:_2d)?\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/) do |match|
-            ranges << {
-              sheet:     match[1],
-              start_col: match[2],
-              start_row: match[3].to_i,
-              end_col:   match[4],
-              end_row:   match[5].to_i,
-            }
-          end
+        # Both helpers take identical arguments, so one pattern covers them.
+        calc_code.scan(/fetch_cell_range(?:_2d)?\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/) do |match|
+          ranges << {
+            sheet:     match[1],
+            start_col: match[2],
+            start_row: match[3].to_i,
+            end_col:   match[4],
+            end_row:   match[5].to_i,
+          }
         end
       end
 
@@ -254,18 +336,18 @@ module Sheety
 
       # First, initialize all ranges to empty strings (required by Croupier)
       ranges.each do |range|
-        setup += %{
+        setup += %(
 initialize_range(#{range[:sheet].inspect}, #{range[:start_col].inspect}, #{range[:start_row]}, #{range[:end_col].inspect}, #{range[:end_row]})
-}
+)
       end
 
       # Then, set the cells with actual values
       unless all_cells.empty?
-        setup += %{
+        setup += %(
 # Set initial cell values
 initialize_cells(#{all_cells.inspect})
 
-}
+)
       end
 
       setup
@@ -323,7 +405,7 @@ initialize_cells(#{all_cells.inspect})
       end.join("\n")
 
       # Generate code to display results in a sheet layout
-      %{
+      %(
 # Execute all tasks
 puts "=== Executing Croupier Tasks ==="
 Croupier::TaskManager.run_tasks
@@ -400,32 +482,32 @@ end
 
 #{sheet_print_code}
 puts ""
-}
+)
     end
 
     # Group all parseable formulas by structural shape and emit one
     # `calc_shape_N(...)` helper per unique shape. Populates @shape_assignment
     # so generate_single_task_source can look up each formula's helper index.
-    # Formulas that fail to parse are skipped here (they keep their inline
-    # #VALUE! body) and are absent from @shape_assignment.
-    private def generate_shape_helpers : String
+    # Formulas with a hard problem (unparseable, unsupported ranges) are
+    # skipped here (they keep their inline #VALUE! body) and are absent from
+    # @shape_assignment.
+    private def generate_shape_helpers(plans : Array(Plan)) : String
       assignment = Hash(String, Int32).new
       # Ordered map: shape key -> {first ast, first sheet, param list, count}.
       shapes = [] of {key: String, ast: AST::Node, sheet: String?, params: Array(CodeGenerator::ReferenceParam)}
 
-      @formulas.each do |_, info|
-        formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
-        ast = parse_formula(formula)
+      plans.each do |plan|
+        ast = plan.ast
         next if ast.nil?
 
         shape_key = @generator.shape_key(ast)
         existing = shapes.index { |entry| entry[:key] == shape_key }
         if existing
-          assignment[info.key] = existing
+          assignment[plan.info.key] = existing
         else
-          params = @generator.reference_params(ast, info.sheet)
-          shapes << {key: shape_key, ast: ast, sheet: info.sheet, params: params}
-          assignment[info.key] = shapes.size - 1
+          params = @generator.reference_params(ast, plan.info.sheet)
+          shapes << {key: shape_key, ast: ast, sheet: plan.info.sheet, params: params}
+          assignment[plan.info.key] = shapes.size - 1
         end
       end
 
@@ -468,8 +550,8 @@ puts ""
     # fragment requires them and concatenates their constants, and aux_files
     # maps each chunk filename to its content. Either way there is exactly one
     # register_formula_task (and thus one Croupier::Task.new) call site.
-    private def build_task_registration(chunk_prefix : String) : {String, Hash(String, String), Bool}
-      entries = @formulas.map { |_, info| task_entry_source(info) }
+    private def build_task_registration(chunk_prefix : String, plans : Array(Plan)) : {String, Hash(String, String), Bool}
+      entries = plans.map { |plan| task_entry_source(plan) }
 
       return {"", Hash(String, String).new, false} if entries.empty?
 
@@ -523,31 +605,23 @@ puts ""
     # Build the source for one entry in the formula_tasks table. Mirrors the
     # id/inputs/outputs/body derivation that previously lived in the per-cell
     # literal block, so runtime behavior is unchanged.
-    private def task_entry_source(info : FormulaInfo) : String
+    private def task_entry_source(plan : Plan) : String
+      info = plan.info
       id = "formula_#{sanitize_key(info.key)}"
       output = "kv://#{info.key}"
 
-      formula = info.formula.starts_with?("=") ? info.formula : "=#{info.formula}"
-      ast = parse_formula(formula)
-
+      ast = plan.ast
       if ast.nil?
-        # Invalid formula: empty inputs, #VALUE! body.
+        # Hard problem (unparseable formula, unsupported range): no inputs,
+        # #VALUE! body. The problem itself is reported via validation_problems.
         return %(  {id: #{id.inspect}, inputs: ->{ [] of String }, output: #{output.inspect}, body: ->{ "#VALUE!" }},\n)
       end
 
-      # Extract dependencies - these are the inputs. Oversized ranges raise
-      # FormulaError; treat those formulas as invalid (#VALUE!) rather than
-      # expanding millions of cells.
-      dependencies = begin
-        @extractor.extract(ast, info.sheet)
-      rescue e : FormulaError
-        STDERR.puts "Warning: #{info.key}: #{e.message}"
-        return %(  {id: #{id.inspect}, inputs: ->{ [] of String }, output: #{output.inspect}, body: ->{ "#VALUE!" }},\n)
-      end
+      dependencies = plan.dependencies
 
       # Generate the concrete calculation code. Used to derive inputs (by
       # scanning for fetch_cell_range calls) and as the fallback body.
-      calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
+      calc_code = plan.calc_code
 
       # Build the inputs array expression - use range helpers when ranges appear
       # (both fetch_cell_range and fetch_cell_range_2d share the same argument

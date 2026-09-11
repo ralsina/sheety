@@ -1102,3 +1102,44 @@ describe Sheety::CodeGenerator do
     end
   end
 end
+
+describe Sheety::CroupierGenerator do
+  describe "validation problems" do
+    it "reports unparseable formulas and degrades them to #VALUE!" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("C3", "=SUM(", "Sheet1")
+      source = gen.generate_source.entrypoint
+      gen.validation_problems.size.should eq(1)
+      gen.validation_problems.first.should contain("Sheet1!C3")
+      gen.validation_problems.first.should contain("could not be parsed")
+      source.should contain("body: ->{ \"#VALUE!\" }")
+    end
+
+    it "reports unsupported whole-row ranges instead of computing over nothing" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("D4", "=SUM(1:2)", "Sheet1")
+      source = gen.generate_source.entrypoint
+      gen.validation_problems.first.should contain("Sheet1!D4")
+      gen.validation_problems.first.should contain("Unsupported range")
+      source.should contain("body: ->{ \"#VALUE!\" }")
+    end
+
+    it "warns about named ranges but keeps the task (it shows #NAME?)" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("B1", "=MyRange", "Sheet1")
+      source = gen.generate_source.entrypoint
+      gen.validation_problems.size.should eq(1)
+      gen.validation_problems.first.should contain("MyRange")
+      gen.validation_problems.first.should contain("#NAME?")
+      source.should contain(%(Sheety::Functions::ErrorValue.new("#NAME?")))
+      source.should contain("kv://Sheet1!B1")
+    end
+
+    it "reports nothing for a clean sheet" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("A3", "=SUM(A1:A2)", "Sheet1")
+      gen.generate_source.entrypoint
+      gen.validation_problems.should be_empty
+    end
+  end
+end
