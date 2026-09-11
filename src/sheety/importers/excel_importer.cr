@@ -26,8 +26,9 @@ module Sheety
         sheets = Array(Importers::ExcelSheet).new
 
         book.sheets.each_with_index do |xlsx_sheet, index|
-          # Extract values using xlsx-parser
-          values = extract_values_from_sheet(xlsx_sheet)
+          # Extract values using xlsx-parser, with the XML cell types so
+          # integer-valued numeric cells can be told apart from text
+          values = extract_values_from_sheet(xlsx_sheet, Sheety::FormulaExtractor.extract_cell_types(filename, index))
 
           # Extract formulas from XML
           formulas = Sheety::FormulaExtractor.extract(filename, index)
@@ -74,7 +75,7 @@ module Sheety
     end
 
     # Extract cell values from xlsx-parser sheet
-    private def self.extract_values_from_sheet(xlsx_sheet : XlsxParser::Sheet) : Hash(String, Functions::CellValue)
+    private def self.extract_values_from_sheet(xlsx_sheet : XlsxParser::Sheet, cell_types : Hash(String, String)) : Hash(String, Functions::CellValue)
       values = {} of String => Functions::CellValue
 
       # xlsx-parser provides rows as Hash(String, Type) where the key is cell reference (A1, B1, etc.)
@@ -85,7 +86,7 @@ module Sheety
           next if cell_value.nil?
 
           # Convert the value to Sheety's CellValue type
-          values[cell_ref] = convert_value(cell_value)
+          values[cell_ref] = convert_value(cell_value, cell_types[cell_ref]?)
         end
       end
 
@@ -117,8 +118,19 @@ module Sheety
       cells
     end
 
-    # Convert xlsx-parser value to Sheety's CellValue type
-    private def self.convert_value(value) : Functions::CellValue
+    # Convert xlsx-parser value to Sheety's CellValue type. The cell_type is
+    # the raw XML t attribute ("n"/absent = numeric, "s" = text, ...):
+    # xlsx-parser returns integer-valued numeric cells as strings (its float
+    # conversion requires round-tripping through Float64#to_s), so a
+    # numeric-looking string in a numeric-typed cell is promoted back to a
+    # number while text cells keep their strings.
+    private def self.convert_value(value, cell_type : String?) : Functions::CellValue
+      if value.is_a?(String) && (cell_type.nil? || cell_type == "n")
+        if num = value.to_f?
+          return BigFloat.new(num, precision: Functions::DEFAULT_PRECISION)
+        end
+      end
+
       case value
       when Int32, Int64
         BigFloat.new(value.to_f, precision: Functions::DEFAULT_PRECISION)

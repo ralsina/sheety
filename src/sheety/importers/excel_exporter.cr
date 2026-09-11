@@ -17,7 +17,10 @@ module Sheety
       temp_dir = File.join("/tmp", "xlsx_export_#{Random.new.next_int}")
       Dir.mkdir_p(temp_dir)
 
-      # Collect all unique strings for shared string table
+      # Collect all unique strings for shared string table. Every string
+      # goes in, including ones that look like numbers or booleans: a cell
+      # holding the text "10.5" must survive a roundtrip as text, not come
+      # back as a number.
       shared_strings = [] of String
       string_to_index = Hash(String, Int32).new
 
@@ -25,7 +28,7 @@ module Sheety
         sheet_data.each do |_, cell_data|
           if cell_data.has_key?("value")
             value = cell_data["value"]
-            if value.is_a?(String) && !numeric_string?(value) && !boolean_string?(value)
+            if value.is_a?(String)
               unless string_to_index.has_key?(value)
                 string_to_index[value] = shared_strings.size
                 shared_strings << value
@@ -201,16 +204,6 @@ module Sheety
       end
     end
 
-    # Check if a string represents a number
-    private def self.numeric_string?(str : String) : Bool
-      !!(str =~ /^-?\d+\.?\d*$/)
-    end
-
-    # Check if a string represents a boolean
-    private def self.boolean_string?(str : String) : Bool
-      str == "TRUE" || str == "FALSE"
-    end
-
     # Generate worksheet XML with formula support
     private def self.generate_worksheet_xml(sheet_data : Hash(String, Hash(String, Functions::CellValue)), string_to_index : Hash(String, Int32)) : String
       # Sort cells and organize into rows
@@ -234,10 +227,14 @@ module Sheety
           raw_value = cell_data["value"]
           value_str = value_to_string(raw_value)
 
+          # Type the cell exactly as the value is typed: numbers as numbers,
+          # strings as shared strings, booleans as booleans. Converting
+          # numeric-looking strings to numbers used to change cell types
+          # through a YAML -> xlsx -> YAML roundtrip.
           if raw_value.is_a?(Bool)
             cell_type = "b"
             value = value_str
-          elsif raw_value.is_a?(Number) || (raw_value.is_a?(String) && numeric_string?(raw_value))
+          elsif raw_value.is_a?(Number)
             cell_type = "n"
             value = value_str
           elsif raw_value.is_a?(String) && string_to_index.has_key?(raw_value)
@@ -329,7 +326,13 @@ module Sheety
         value
       when BigFloat
         if value == value.to_i
-          value.to_i.to_s
+          value.to_i64.to_s
+        else
+          value.to_s
+        end
+      when Float64
+        if value == value.to_i
+          value.to_i64.to_s
         else
           value.to_s
         end

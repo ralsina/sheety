@@ -122,6 +122,13 @@ describe "Excel Roundtrip" do
           end
         end
       end
+
+      # Type fidelity: the exporter used to turn numeric-looking strings
+      # into number cells, so quoted strings came back as numbers.
+      reimported_data.as_h["Sheet1"].as_h["A1"].as_h["value"].raw.should be_a(String)
+      reimported_data.as_h["Sheet1"].as_h["B1"].as_h["value"].raw.should be_a(String)
+      reimported_data.as_h["Sheet1"].as_h["C1"].as_h["value"].raw.should be_a(Bool)
+      reimported_data.as_h["Sheet2"].as_h["A1"].as_h["value"].raw.is_a?(Number).should be_true
     ensure
       # Cleanup temp files
       File.delete(yaml_file) if File.exists?(yaml_file)
@@ -157,9 +164,10 @@ private def parse_roundtrip_value(value : YAML::Any) : Sheety::Functions::CellVa
 end
 
 # Helper to normalize values for comparison.
-# The xlsx importer tends to round-trip values as strings, and integer literals in the
-# source YAML arrive as Int while the same cell reimports as a numeric string like "100.0".
-# To compare fairly we coerce anything that looks numeric to a canonical numeric form.
+# Types are preserved through the roundtrip now, but equivalent values can
+# still carry adjacent representations (an integer exports as "100" and
+# reimports as Int; a float keeps its decimal form), so to compare fairly
+# we coerce anything that looks numeric to a canonical numeric form.
 private def normalize_roundtrip_value(value)
   # Unwrap YAML::Any so the case below sees the underlying scalar.
   value = value.raw if value.responds_to?(:raw)

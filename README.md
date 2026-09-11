@@ -153,9 +153,6 @@ because they trigger a rebuild).
 - **Shared formulas** (Excel's representation for dragged-down formulas)
   are imported by translating the master formula, but exotic cases may
   translate imperfectly.
-- **Excel type roundtrip** is not fully type-preserving: a cell containing
-  the text `"10.5"` may come back from a `.xlsx` conversion as the number
-  `10.5`.
 - **Error values** are approximations: e.g. division by zero shows
   `#ERROR: ...` rather than Excel's `#DIV/0!`.
 

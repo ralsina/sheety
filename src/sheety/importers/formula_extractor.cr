@@ -19,13 +19,41 @@ module Sheety
             formulas = parse_formulas_from_xml(xml_content)
           end
         end
-      rescue ex : Exception
+      rescue Exception
         # If we can't extract formulas, return empty hash
         # This allows the importer to still work with values
         formulas = {} of String => String
       end
 
       formulas
+    end
+
+    # Extract the XML cell type ("n"/absent = numeric, "s" = shared string,
+    # "b" = boolean, ...) per cell reference. Needed because xlsx-parser
+    # returns integer-valued numeric cells as strings, and only this
+    # attribute knows whether a "100" was a number or text.
+    def self.extract_cell_types(filename : String, sheet_index : Int32) : Hash(String, String)
+      types = {} of String => String
+
+      begin
+        Compress::Zip::File.open(filename) do |zip|
+          sheet_path = resolve_sheet_path(zip, sheet_index)
+
+          if sheet_path && zip[sheet_path]?
+            doc = XML.parse(zip[sheet_path].open(&.gets_to_end))
+            doc.xpath_nodes("//*[local-name()='c']").each do |cell_node|
+              if ref = cell_node["r"]?
+                types[ref] = cell_node["t"]? || "n"
+              end
+            end
+          end
+        end
+      rescue Exception
+        # Without type info the importer keeps whatever xlsx-parser produced.
+        types = {} of String => String
+      end
+
+      types
     end
 
     # Resolves the actual worksheet XML path from workbook relationships.
@@ -50,7 +78,7 @@ module Sheety
 
       # Target is relative to xl/ directory
       sheet_file.empty? ? nil : "xl/#{sheet_file}"
-    rescue ex : Exception
+    rescue Exception
       # Fallback to simple naming if relationship parsing fails
       "xl/worksheets/sheet#{sheet_index + 1}.xml"
     end
@@ -122,7 +150,7 @@ module Sheety
             formulas[cell_ref] = formula
           end
         end
-      rescue ex : Exception
+      rescue Exception
         # If XML parsing fails, return empty hash
         formulas = {} of String => String
       end
