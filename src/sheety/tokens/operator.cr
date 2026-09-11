@@ -115,8 +115,6 @@ module Sheety
         if m = self.class.match?(s)
           @operator_name = m["name"]
           m
-        else
-          nil
         end
       end
 
@@ -174,8 +172,6 @@ module Sheety
         if m = self.class.match?(s)
           @operator_name = m["name"]
           m
-        else
-          nil
         end
       end
 
@@ -228,8 +224,6 @@ module Sheety
         if m = self.class.match?(s)
           @operator_name = "&"
           m
-        else
-          nil
         end
       end
 
@@ -259,8 +253,6 @@ module Sheety
         if m = self.class.match?(s)
           @operator_name = "%"
           m
-        else
-          nil
         end
       end
 
@@ -288,8 +280,6 @@ module Sheety
         if m = self.class.match?(s)
           @operator_name = ":"
           m
-        else
-          nil
         end
       end
 
@@ -318,8 +308,6 @@ module Sheety
         if m = self.class.match?(s)
           @operator_name = ","
           m
-        else
-          nil
         end
       end
 
@@ -372,8 +360,6 @@ module Sheety
         if m = self.class.match?(s)
           @operator_name = " "
           m
-        else
-          nil
         end
       end
 

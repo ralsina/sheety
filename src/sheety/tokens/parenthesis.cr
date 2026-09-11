@@ -20,8 +20,6 @@ module Sheety
           @is_opening_paren = (char == "(")
           @attr["expr"] = char
           m
-        else
-          nil
         end
       end
 

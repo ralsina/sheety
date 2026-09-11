@@ -67,13 +67,13 @@ module Sheety
         end.join("\n")
 
         workbook = <<-XML
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-          <sheets>
-        #{sheets_xml}
-          </sheets>
-        </workbook>
-        XML
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <sheets>
+          #{sheets_xml}
+            </sheets>
+          </workbook>
+          XML
 
         # Create sharedStrings.xml
         shared_strings_xml = String.build do |xml|
@@ -105,64 +105,64 @@ module Sheety
 
         # Create minimal styles.xml
         styles = <<-XML
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-          <numFmts count="0"/>
-          <fonts count="1">
-            <font><sz val="11"/><name val="Calibri"/></font>
-          </fonts>
-          <fills count="2">
-            <fill><patternFill patternType="none"/></fill>
-            <fill><patternFill patternType="gray125"/></fill>
-          </fills>
-          <borders count="1">
-            <border><left/><right/><top/><bottom/></border>
-          </borders>
-          <cellStyleXfs count="1">
-            <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
-          </cellStyleXfs>
-          <cellXfs count="1">
-            <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-          </cellXfs>
-        </styleSheet>
-        XML
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+            <numFmts count="0"/>
+            <fonts count="1">
+              <font><sz val="11"/><name val="Calibri"/></font>
+            </fonts>
+            <fills count="2">
+              <fill><patternFill patternType="none"/></fill>
+              <fill><patternFill patternType="gray125"/></fill>
+            </fills>
+            <borders count="1">
+              <border><left/><right/><top/><bottom/></border>
+            </borders>
+            <cellStyleXfs count="1">
+              <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+            </cellStyleXfs>
+            <cellXfs count="1">
+              <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+            </cellXfs>
+          </styleSheet>
+          XML
 
         # Create minimal theme
         theme = <<-XML
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">
-          <a:themeElements>
-            <a:colorScheme name="Office">
-              <a:dk1><a:srgbClr val="000000"/></a:dk1>
-              <a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
-              <a:dk2><a:srgbClr val="1F497D"/></a:dk2>
-              <a:lt2><a:srgbClr val="EEECE1"/></a:lt2>
-              <a:accent1><a:srgbClr val="4F81BD"/></a:accent1>
-              <a:accent2><a:srgbClr val="C0504D"/></a:accent2>
-              <a:accent3><a:srgbClr val="9BBB59"/></a:accent3>
-              <a:accent4><a:srgbClr val="8064A2"/></a:accent4>
-              <a:accent5><a:srgbClr val="4BACC6"/></a:accent5>
-              <a:accent6><a:srgbClr val="F79646"/></a:accent6>
-            </a:colorScheme>
-          </a:themeElements>
-        </a:theme>
-        XML
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">
+            <a:themeElements>
+              <a:colorScheme name="Office">
+                <a:dk1><a:srgbClr val="000000"/></a:dk1>
+                <a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
+                <a:dk2><a:srgbClr val="1F497D"/></a:dk2>
+                <a:lt2><a:srgbClr val="EEECE1"/></a:lt2>
+                <a:accent1><a:srgbClr val="4F81BD"/></a:accent1>
+                <a:accent2><a:srgbClr val="C0504D"/></a:accent2>
+                <a:accent3><a:srgbClr val="9BBB59"/></a:accent3>
+                <a:accent4><a:srgbClr val="8064A2"/></a:accent4>
+                <a:accent5><a:srgbClr val="4BACC6"/></a:accent5>
+                <a:accent6><a:srgbClr val="F79646"/></a:accent6>
+              </a:colorScheme>
+            </a:themeElements>
+          </a:theme>
+          XML
 
         # Create docProps
         doc_props_core = <<-XML
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/">
-          <dcterms:created xsi:type="dcterms:W3CDTF">2024-01-01T00:00:00Z</dcterms:created>
-          <dc:creator>Sheety</dc:creator>
-        </cp:coreProperties>
-        XML
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/">
+            <dcterms:created xsi:type="dcterms:W3CDTF">2024-01-01T00:00:00Z</dcterms:created>
+            <dc:creator>Sheety</dc:creator>
+          </cp:coreProperties>
+          XML
 
         doc_props_app = <<-XML
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
-          <Application>Sheety</Application>
-        </Properties>
-        XML
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+            <Application>Sheety</Application>
+          </Properties>
+          XML
 
         # Write all files
         File.write(File.join(temp_dir, "[Content_Types].xml"), content_types)
@@ -184,13 +184,13 @@ module Sheety
         dot_rels_dir = File.join(temp_dir, "_rels")
         Dir.mkdir_p(dot_rels_dir)
         dot_rels = <<-XML
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-          <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-          <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
-          <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
-        </Relationships>
-        XML
+          <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+            <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+            <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+          </Relationships>
+          XML
         File.write(File.join(dot_rels_dir, ".rels"), dot_rels)
 
         # Create the zip file

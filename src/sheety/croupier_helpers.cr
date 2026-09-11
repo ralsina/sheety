@@ -91,35 +91,35 @@ module Sheety
     def bin_add(left, right) : String?
       ln = Sheety::Functions.to_float(left)
       rn = Sheety::Functions.to_float(right)
-      return nil unless ln && rn
+      return unless ln && rn
       format_result(ln + rn)
     end
 
     def bin_sub(left, right) : String?
       ln = Sheety::Functions.to_float(left)
       rn = Sheety::Functions.to_float(right)
-      return nil unless ln && rn
+      return unless ln && rn
       format_result(ln - rn)
     end
 
     def bin_mul(left, right) : String?
       ln = Sheety::Functions.to_float(left)
       rn = Sheety::Functions.to_float(right)
-      return nil unless ln && rn
+      return unless ln && rn
       format_result(ln * rn)
     end
 
     def bin_div(left, right) : String?
       ln = Sheety::Functions.to_float(left)
       rn = Sheety::Functions.to_float(right)
-      return nil unless ln && rn
+      return unless ln && rn
       format_result(ln / rn)
     end
 
     def bin_pow(left, right) : String?
       ln = Sheety::Functions.to_float(left)
       rn = Sheety::Functions.to_float(right)
-      return nil unless ln && rn
+      return unless ln && rn
       # For integer exponents, use BigFloat's ** operator
       if rn == rn.to_i
         format_result(ln ** rn.to_i)

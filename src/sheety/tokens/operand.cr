@@ -241,8 +241,6 @@ module Sheety
       def match(s : String) : Regex::MatchData?
         if m = self.class.match?(s)
           m
-        else
-          nil
         end
       end
 

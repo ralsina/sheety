@@ -336,14 +336,14 @@ describe Sheety::Tokens do
         token = Sheety::Tokens::Parenthesis.new("(")
         m = token.match("(")
         m.should_not be_nil
-        token.opening?.should eq(true)
+        token.opening?.should be_true
       end
 
       it "matches closing paren" do
         token = Sheety::Tokens::Parenthesis.new(")")
         m = token.match(")")
         m.should_not be_nil
-        token.opening?.should eq(false)
+        token.opening?.should be_false
       end
     end
   end

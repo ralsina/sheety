@@ -69,18 +69,16 @@ module Sheety
         matched = false
 
         filters.each do |filter_class|
-          begin
-            if token = try_match_token(filter_class, expr_body)
-              token.ast(tokens, stack, builder)
-              expr_body = expr_body[token.end_match..-1]
-              matched = true
-              break
-            end
-          rescue TokenError
-            # Try next filter
-          rescue ex : FormulaError
-            raise FormulaError.new("Error parsing: #{expression}")
+          if token = try_match_token(filter_class, expr_body)
+            token.ast(tokens, stack, builder)
+            expr_body = expr_body[token.end_match..-1]
+            matched = true
+            break
           end
+        rescue TokenError
+          # Try next filter
+        rescue ex : FormulaError
+          raise FormulaError.new("Error parsing: #{expression}")
         end
 
         unless matched
@@ -181,8 +179,6 @@ module Sheety
         if Tokens::Parenthesis.match?(expr)
           Tokens::Parenthesis.new(expr, @context)
         end
-      else
-        nil
       end
     end
   end

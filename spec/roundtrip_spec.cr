@@ -6,34 +6,34 @@ describe "Excel Roundtrip" do
   it "preserves data when exporting and importing back" do
     # Create a test YAML file
     test_yaml = <<-YAML
-    Sheet1:
-      A1:
-        value: "10.5"
-      A2:
-        value: "20"
-      A3:
-        value: "30"
-      A4:
-        formula: "=SUM(A1:A3)"
-      A5:
-        formula: "=A4*2"
-      B1:
-        value: "Hello"
-      B2:
-        value: "World"
-      C1:
-        value: true
-      C2:
-        value: false
-    Sheet2:
-      A1:
-        value: 100
-      A2:
-        formula: "=Sheet1!A4"
-    _ui_state:
-      active_sheet: Sheet1
-      active_cell: A1
-    YAML
+      Sheet1:
+        A1:
+          value: "10.5"
+        A2:
+          value: "20"
+        A3:
+          value: "30"
+        A4:
+          formula: "=SUM(A1:A3)"
+        A5:
+          formula: "=A4*2"
+        B1:
+          value: "Hello"
+        B2:
+          value: "World"
+        C1:
+          value: true
+        C2:
+          value: false
+      Sheet2:
+        A1:
+          value: 100
+        A2:
+          formula: "=Sheet1!A4"
+      _ui_state:
+        active_sheet: Sheet1
+        active_cell: A1
+      YAML
 
     # Create temp directory for testing
     temp_dir = File.join("/tmp", "sheety_roundtrip_test")

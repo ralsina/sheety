@@ -15,13 +15,13 @@ module Sheety
           rest = s[m.end(0)..-1]
 
           # Must NOT be followed by ( (that would be a function)
-          return nil if rest =~ /^\s*\(/
+          return if rest =~ /^\s*\(/
 
           # Must NOT be followed by ! (that would be a sheet reference)
-          return nil if rest =~ /^\s*!/
+          return if rest =~ /^\s*!/
 
           # Must NOT be a true/false
-          return nil if name.upcase == "TRUE" || name.upcase == "FALSE"
+          return if name.upcase == "TRUE" || name.upcase == "FALSE"
 
           # Must NOT be a cell reference pattern: one to three letters (a valid
           # Excel column, ≤ XFD) followed by one or more digits (a row number,
@@ -30,16 +30,14 @@ module Sheety
           # CV97, XFD1048576) as a named range — which then dropped it from the
           # dependency graph. Restricting the letter prefix to 1-3 chars keeps
           # legitimate named ranges like Sales2024 (5 letters) working.
-          return nil if name =~ /^[A-Z]{1,3}\d+$/i
+          return if name =~ /^[A-Z]{1,3}\d+$/i
 
           # Must NOT be a bare column letter (A, B, ..., XFD) — these are
           # column references, not named ranges.
-          return nil if name =~ /^[A-Z]{1,3}$/i
+          return if name =~ /^[A-Z]{1,3}$/i
 
           # Accept multi-letter names and names with underscores
           m
-        else
-          nil
         end
       end
 
