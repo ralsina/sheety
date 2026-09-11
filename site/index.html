@@ -1,196 +1,508 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sheety - Spreadsheets, Compiled</title>
+    <meta name="description" content="Sheety compiles spreadsheet definitions (YAML or Excel) into standalone, interactive TUI binaries.">
+    <title>SHEETY - Spreadsheets, Compiled</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230d0500'/%3E%3Crect x='2' y='11' width='4' height='3' fill='%23ffd75e'/%3E%3Ctext x='2' y='10' font-family='monospace' font-size='9' fill='%23ffb000'%3ES%3E%3C/text%3E%3C/svg%3E">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     <style>
+        :root,
+        [data-theme=dark] {
+            color-scheme: dark;
+            --amber: #ffb000;
+            --amber-bright: #ffd75e;
+            --amber-dim: #c07f16;
+            --amber-faint: #8a5f14;
+            --screen: #0d0500;
+            --panel: #150900;
+            --ink: #180b00;
+            --glow: rgba(255, 176, 0, 0.32);
+
+            --pico-background-color: var(--screen);
+            --pico-color: var(--amber);
+            --pico-h1-color: var(--amber-bright);
+            --pico-h2-color: var(--amber-bright);
+            --pico-h3-color: var(--amber);
+            --pico-muted-color: var(--amber-dim);
+            --pico-muted-border-color: var(--amber-faint);
+            --pico-primary: var(--amber);
+            --pico-primary-background: var(--amber);
+            --pico-primary-inverse: var(--ink);
+            --pico-border-color: var(--amber-faint);
+            --pico-border-radius: 0;
+            --pico-font-family: "VT323", "Courier New", monospace;
+            --pico-font-family-monospace: "VT323", "Courier New", monospace;
+            --pico-code-color: var(--amber-bright);
+            --pico-code-background-color: #1a0d00;
+            --pico-selection-background-color: var(--amber);
+            --pico-selection-color: var(--ink);
+        }
+
+        html {
+            font-size: 18px;
+        }
+
+        body {
+            background-color: var(--screen);
+            text-shadow: 0 0 6px var(--glow);
+        }
+
+        /* pico treats <article> as a card; sit it directly on the amber glass instead */
+        article {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        ::selection {
+            background: var(--amber);
+            color: var(--ink);
+            text-shadow: none;
+        }
+
+        /* CRT scanlines */
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 9990;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                to bottom,
+                rgba(10, 3, 0, 0) 0px,
+                rgba(10, 3, 0, 0) 2px,
+                rgba(10, 3, 0, 0.28) 2px,
+                rgba(10, 3, 0, 0.28) 3px
+            );
+            animation: crt-drift 9s ease-in-out infinite;
+        }
+
+        /* CRT glow bloom + vignette */
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 9991;
+            pointer-events: none;
+            background:
+                radial-gradient(ellipse 120% 90% at 50% 40%, rgba(255, 176, 0, 0.05), rgba(0, 0, 0, 0) 55%),
+                radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 58%, rgba(8, 2, 0, 0.5) 100%);
+        }
+
+        @keyframes crt-drift {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.82; }
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 0.45em;
+            height: 0.85em;
+            margin-left: 0.08em;
+            background: var(--amber-bright);
+            box-shadow: 0 0 12px var(--glow);
+            animation: blink 1.1s steps(2, start) infinite;
+        }
+
+        @keyframes blink {
+            to { visibility: hidden; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            body::before { animation: none; }
+            .cursor { animation: none; }
+        }
+
+        a {
+            color: var(--amber-bright);
+        }
+
+        a:hover {
+            background: var(--amber-bright);
+            color: var(--ink);
+            text-shadow: none;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        h2 {
+            border-bottom: 4px double var(--amber-dim);
+            padding-bottom: 0.25rem;
+            margin-top: 3rem;
+        }
+
+        h2::before {
+            content: ":: ";
+            color: var(--amber-dim);
+        }
+
+        [id] {
+            scroll-margin-top: 3.5rem;
+        }
+
+        .container {
+            max-width: 62rem;
+        }
+
+        /* DOS menu bar */
+        .menubar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 1.25rem;
+            padding: 0.35rem 1rem;
+            background: var(--screen);
+            border-bottom: 2px solid var(--amber-dim);
+        }
+
+        .menu-title {
+            background: var(--amber);
+            color: var(--ink);
+            padding: 0 0.5rem;
+            text-shadow: none;
+            letter-spacing: 0.05em;
+        }
+
+        .menubar a {
+            text-decoration: none;
+            text-transform: uppercase;
+        }
+
+        .menubar a:hover {
+            background: var(--amber-bright);
+        }
+
+        .menu-meta {
+            margin-left: auto;
+            color: var(--amber-faint);
+            text-shadow: none;
+        }
+
+        @media (max-width: 640px) {
+            .menu-meta { display: none; }
+        }
+
+        /* Hero */
         .hero {
             text-align: center;
-            padding: 4rem 1rem;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            margin-bottom: 2rem;
+            padding: 3.5rem 1rem 3rem;
         }
-        .hero h1 {
-            font-size: 3rem;
-            margin-bottom: 0.5rem;
-        }
-        .hero .tagline {
-            font-size: 1.25rem;
-            opacity: 0.9;
-        }
-        .hero .cta-button {
+
+        .boot {
             display: inline-block;
-            margin-top: 1.5rem;
-            padding: 0.75rem 2rem;
-            background: white;
-            color: #667eea;
+            text-align: left;
+            color: var(--amber-dim);
+            font-size: 1rem;
+            line-height: 1.5;
+            margin: 0 0 2rem;
+        }
+
+        .hero h1 {
+            font-size: clamp(3.5rem, 14vw, 7.5rem);
+            margin: 0;
+            text-shadow: 0 0 18px var(--glow), 0 0 60px rgba(255, 176, 0, 0.2);
+        }
+
+        .hero .tagline {
+            font-size: 1.4rem;
+            margin: 0.4rem 0;
+            text-transform: uppercase;
+        }
+
+        .hero .tagline.sub {
+            color: var(--amber-dim);
+            font-size: 1.15rem;
+        }
+
+        .cta-button {
+            display: inline-block;
+            margin-top: 2rem;
+            padding: 0.5rem 1.5rem;
+            border: 2px solid var(--amber);
+            color: var(--amber-bright);
             text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            transition: transform 0.2s, box-shadow 0.2s;
+            text-transform: uppercase;
+            font-size: 1.3rem;
+            letter-spacing: 0.05em;
+            text-shadow: 0 0 10px var(--glow);
         }
-        .hero .cta-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+
+        .cta-button:hover {
+            background: var(--amber);
+            color: var(--ink);
+            text-shadow: none;
         }
+
+        /* Inverse-video warning */
         .warning-box {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 1rem;
+            background: var(--amber);
+            color: var(--ink);
+            padding: 1rem 1.25rem;
             margin: 2rem 0;
-            border-radius: 4px;
-            color: #854d0e;
+            text-shadow: none;
         }
+
         .warning-box .tongue-in-cheek {
-            color: #92400e;
+            color: var(--ink);
+            opacity: 0.75;
+            font-style: italic;
         }
+
+        /* Terminal panels */
+        .demo-terminal {
+            background: #070200;
+            border: 4px double var(--amber-faint);
+            color: var(--amber);
+            padding: 1rem 1.25rem;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+            font-size: 1.05rem;
+            line-height: 1.6;
+        }
+
+        .demo-terminal pre {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            border: none;
+            color: inherit;
+            font-size: inherit;
+        }
+
+        .demo-terminal .prompt,
+        .demo-terminal .key {
+            color: var(--amber-bright);
+        }
+
+        .demo-terminal .output,
+        .demo-terminal .val {
+            color: var(--amber-dim);
+        }
+
+        .demo-terminal .formula {
+            color: var(--amber-bright);
+            text-shadow: 0 0 8px var(--glow);
+        }
+
+        code {
+            background: #1a0d00;
+            border: 1px solid #3d2400;
+            padding: 0 0.3em;
+        }
+
+        /* Feature cards as TUI windows */
         .feature-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 1.5rem;
+            gap: 1.25rem;
             margin: 2rem 0;
         }
+
         .feature-card {
-            padding: 1.5rem;
-            border: 1px solid #374151;
-            border-radius: 8px;
-            background: #1e293b;
-            color: #e2e8f0;
+            border: 4px double var(--amber-faint);
+            background: var(--panel);
         }
+
         .feature-card h3 {
-            margin-top: 0;
-            color: #a5f3fc;
+            background: var(--amber);
+            color: var(--ink);
+            font-size: 1.1rem;
+            padding: 0.3rem 0.9rem;
+            margin: 0;
+            text-shadow: none;
         }
+
+        .feature-card h3 .marker {
+            opacity: 0.55;
+        }
+
         .feature-card p {
-            color: #cbd5e1;
+            margin: 0;
+            padding: 1rem;
         }
-        code {
-            background: #1e293b;
-            color: #e2e8f0;
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            font-size: 0.9em;
-        }
-        .demo-terminal {
-            background: #1e293b;
-            color: #22d3ee;
-            padding: 1.5rem;
-            border-radius: 8px;
-            font-family: monospace;
-            margin: 2rem 0;
-            overflow-x: auto;
-        }
-        .demo-terminal .prompt {
-            color: #a5f3fc;
-        }
-        .demo-terminal .output {
-            color: #cbd5e1;
-        }
-        .testimonial-section {
-            margin: 3rem 0;
-            text-align: center;
-        }
-        .testimonial-carousel {
-            position: relative;
-            max-width: 800px;
-            margin: 0 auto;
-            overflow: hidden;
-        }
-        .testimonial-slide {
-            display: none;
-            padding: 2rem;
-            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-            border-radius: 12px;
-            border: 1px solid #667eea30;
-        }
-        .testimonial-slide.active {
-            display: block;
-            animation: fadeIn 0.5s ease-in-out;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .testimonial-quote {
-            font-size: 1.25rem;
-            font-style: italic;
-            color: #e2e8f0;
-            line-height: 1.8;
-            margin-bottom: 1.5rem;
-        }
-        .testimonial-author {
-            color: #a5f3fc;
-            font-weight: bold;
-        }
-        .carousel-dots {
-            display: flex;
-            justify-content: center;
-            gap: 0.5rem;
-            margin-top: 1.5rem;
-        }
-        .carousel-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #374151;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        .carousel-dot:hover {
-            background: #667eea;
-        }
-        .carousel-dot.active {
-            background: #667eea;
-            transform: scale(1.2);
-        }
+
+        /* Demo showcase */
         .demo-showcase {
             display: grid;
             grid-template-columns: 1fr;
             gap: 2rem;
             margin: 2rem 0;
         }
+
         @media (min-width: 1200px) {
             .demo-showcase {
                 grid-template-columns: 1fr 1fr;
             }
         }
-        footer {
-            text-align: center;
-            padding: 2rem;
-            margin-top: 3rem;
-            color: #6b7280;
-            font-size: 0.9rem;
+
+        .screen-bezel {
+            border: 4px double var(--amber-faint);
+            background: #070200;
+            padding: 0.5rem;
         }
-        .tongue-in-cheek {
+
+        .caption {
+            text-align: center;
+            color: var(--amber-faint);
+            font-size: 0.95em;
+            margin-top: 0.6rem;
+        }
+
+        /* Testimonials */
+        .testimonial-section {
+            margin: 0;
+            text-align: center;
+        }
+
+        .testimonial-carousel {
+            position: relative;
+            max-width: 800px;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+
+        .testimonial-slide {
+            display: none;
+            padding: 1.5rem;
+            background: var(--panel);
+            border: 4px double var(--amber-faint);
+            text-align: left;
+        }
+
+        .testimonial-slide.active {
+            display: block;
+        }
+
+        .testimonial-quote {
+            font-size: 1.25rem;
+            font-style: normal;
+            color: var(--amber);
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+
+        .testimonial-quote::before {
+            content: "> ";
+            color: var(--amber-dim);
+        }
+
+        .testimonial-author {
+            color: var(--amber-bright);
+        }
+
+        .carousel-dots {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .carousel-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 0;
+            border: 2px solid var(--amber-dim);
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .carousel-dot:hover {
+            border-color: var(--amber-bright);
+        }
+
+        .carousel-dot.active {
+            background: var(--amber);
+            border-color: var(--amber);
+        }
+
+        ul {
+            list-style-type: square;
+        }
+
+        li::marker {
+            color: var(--amber-dim);
+        }
+
+        footer {
+            border-top: 4px double var(--amber-faint);
+            margin-top: 4rem;
+            padding: 2rem 1rem;
+            text-align: center;
+            color: var(--amber-dim);
+        }
+
+        footer .tongue-in-cheek {
             font-style: italic;
-            color: #6b7280;
+        }
+
+        ::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #140800;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--amber-faint);
+            border: 2px solid #140800;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--amber-dim);
         }
     </style>
 </head>
 <body>
-    <div class="hero">
-        <h1>📊 Sheety</h1>
+    <nav class="menubar">
+        <span class="menu-title">SHEETY.EXE</span>
+        <a href="#demo"><u>D</u>EMO</a>
+        <a href="#features">FEA<u>T</u>URES</a>
+        <a href="#download">DO<u>W</u>NLOAD</a>
+        <a href="https://github.com/ralsina/sheety"><u>G</u>ITHUB</a>
+        <span class="menu-meta">80x25 AMBER</span>
+    </nav>
+
+    <header class="hero">
+        <pre class="boot">C:\&gt; BOOT SHEETY.EXE
+SPREADSHEET ENGINE .............. OK
+FORMULA PARSER .................. OK
+640K CONVENTIONAL MEMORY ........ ENOUGH</pre>
+        <h1>SHEETY<span class="cursor" aria-hidden="true"></span></h1>
         <p class="tagline">Spreadsheets, compiled to binaries.</p>
-        <p class="tagline">Because YAML files deserve to be executables too.</p>
-        <a href="https://github.com/ralsina/sheety" class="cta-button">📦 View on GitHub</a>
-    </div>
+        <p class="tagline sub">Because YAML files deserve to be executables too.</p>
+        <a href="https://github.com/ralsina/sheety" class="cta-button">[ View on GitHub ]</a>
+    </header>
 
     <main class="container">
         <article>
             <div class="warning-box">
-                <strong>⚠️ Warning:</strong> This is experimental software.
+                <strong>(!) Warning:</strong> This is experimental software.
                 <span class="tongue-in-cheek">By using it, you agree that compiling a YAML file into a binary spreadsheet is probably ridiculous, but you're going to do it anyway.</span>
             </div>
 
             <div class="demo-showcase">
                 <div>
-                    <h2>See It In Action</h2>
-                    <div style="text-align: center; margin: 2rem 0;">
+                    <h2 id="demo">See It In Action</h2>
+                    <div class="screen-bezel">
                         <script src="https://asciinema.org/a/0KjdN8MNyULwtdXP.js" id="asciicast-0KjdN8MNyULwtdXP" async="true"></script>
                     </div>
+                    <p class="caption">FIG. 1 - SHEETY.EXE IN ITS NATURAL HABITAT</p>
                 </div>
 
                 <div>
@@ -216,42 +528,42 @@
                 No runtime dependencies. No JVM. No Python. Just a single binary that runs your spreadsheet with formula support, cell editing, and in-process rebuilding.
             </p>
 
-            <h2>Features</h2>
+            <h2 id="features">Features</h2>
             <div class="feature-grid">
                 <div class="feature-card">
-                    <h3>🚀 Hash-Based Caching</h3>
+                    <h3><span class="marker">[*]</span> Hash-Based Caching</h3>
                     <p>Smart content-based caching makes re-running unchanged spreadsheets ~400x faster. First run: ~3 seconds. Subsequent runs: ~0.007 seconds (instant).</p>
                 </div>
                 <div class="feature-card">
-                    <h3>📁 Format Support</h3>
+                    <h3><span class="marker">[#]</span> Format Support</h3>
                     <p>Works with YAML (version control friendly) and Excel (.xlsx) files. Convert between any format with full roundtrip support.</p>
                 </div>
                 <div class="feature-card">
-                    <h3>🎨 Terminal UI</h3>
+                    <h3><span class="marker">[%]</span> Terminal UI</h3>
                     <p>Interactive TUI with 1000x1000 grid, mouse support, formula editing, and live recalculation. Navigate, edit, save—all in your terminal.</p>
                 </div>
                 <div class="feature-card">
-                    <h3>🔄 Self-Rebuilding</h3>
+                    <h3><span class="marker">[@]</span> Self-Rebuilding</h3>
                     <p>Edit a formula in the TUI and it recompiles itself from within the binary. The binary rebuilds the binary. It's binaries all the way down.</p>
                 </div>
                 <div class="feature-card">
-                    <h3>💾 State Persistence</h3>
+                    <h3><span class="marker">[&amp;]</span> State Persistence</h3>
                     <p>UUID-based state management that survives rebuilds. Remembers cursor position and saves all changes back to your source file.</p>
                 </div>
                 <div class="feature-card">
-                    <h3>📝 Excel Formulas</h3>
+                    <h3><span class="marker">[+]</span> Excel Formulas</h3>
                     <p>Comprehensive formula support: SUM, AVERAGE, IF, VLOOKUP, CONCAT, text functions, date functions, and more. 50+ functions implemented.</p>
                 </div>
             </div>
 
-            <h2>How To Use</h2>
+            <h2 id="download">How To Use</h2>
 
             <h3>Option 1: Download Static Binary (Recommended)</h3>
             <p>Download a pre-built static binary - no dependencies required:</p>
             <div class="demo-terminal">
-                <div><span class="prompt">$</span> wget https://github.com/ralsina/sheety/releases/latest/download/sheety-static-linux-amd64 -O sheety</div>
-                <div><span class="prompt">$</span> chmod +x sheety</div>
-                <div><span class="prompt">$</span> ./sheety my_sheet.yaml</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> wget https://github.com/ralsina/sheety/releases/latest/download/sheety-static-linux-amd64 -O sheety</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> chmod +x sheety</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> ./sheety my_sheet.yaml</div>
                 <div class="output">Creating new spreadsheet: my_sheet.yaml</div>
                 <div class="output">Building...</div>
                 <div class="output">Launching TUI... [Press Q to exit]</div>
@@ -260,37 +572,37 @@
 
             <h3>Option 2: Build from Source</h3>
             <div class="demo-terminal">
-                <div><span class="prompt">$</span> git clone https://github.com/ralsina/sheety</div>
-                <div><span class="prompt">$</span> cd sheety && shards install && shards build</div>
-                <div><span class="prompt">$</span> ./bin/sheety my_sheet.yaml</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> git clone https://github.com/ralsina/sheety</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> cd sheety &amp;&amp; shards install &amp;&amp; shards build</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> ./bin/sheety my_sheet.yaml</div>
             </div>
 
             <h3>Convert Between Formats</h3>
             <div class="demo-terminal">
-                <div><span class="prompt">$</span> ./sheety data.yaml --save-to=data.xlsx</div>
-                <div class="output">Converted: data.yaml -> data.xlsx</div>
-                <div><span class="prompt">$</span> ./sheety data.xlsx --save-to=data.yaml</div>
-                <div class="output">Converted: data.xlsx -> data.yaml</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> ./sheety data.yaml --save-to=data.xlsx</div>
+                <div class="output">Converted: data.yaml -&gt; data.xlsx</div>
+                <div><span class="prompt">C:\SHEETY&gt;</span> ./sheety data.xlsx --save-to=data.yaml</div>
+                <div class="output">Converted: data.xlsx -&gt; data.yaml</div>
             </div>
 
             <h2>Spreadsheet Format</h2>
             <p>Define your spreadsheet in YAML:</p>
             <div class="demo-terminal">
-                <pre>Sheet1:
-  A1:
-    value: 100
-  A2:
-    value: 200
-  A3:
-    formula: "=SUM(A1:A2)"
-  B1:
-    value: "Hello"
-  B2:
-    formula: "=CONCAT(B1, \" World\")"
+                <pre><span class="key">Sheet1:</span>
+  <span class="key">A1:</span>
+    <span class="key">value:</span> <span class="val">100</span>
+  <span class="key">A2:</span>
+    <span class="key">value:</span> <span class="val">200</span>
+  <span class="key">A3:</span>
+    <span class="key">formula:</span> <span class="formula">"=SUM(A1:A2)"</span>
+  <span class="key">B1:</span>
+    <span class="key">value:</span> <span class="val">"Hello"</span>
+  <span class="key">B2:</span>
+    <span class="key">formula:</span> <span class="formula">"=CONCAT(B1, \" World\")"</span>
 
-Sheet2:
-  A1:
-    formula: "=Sheet1!A3*2"</pre>
+<span class="key">Sheet2:</span>
+  <span class="key">A1:</span>
+    <span class="key">formula:</span> <span class="formula">"=Sheet1!A3*2"</span></pre>
             </div>
 
             <h2>Why Would You Use This?</h2>
@@ -313,10 +625,10 @@ Sheet2:
 
             <h2>Status</h2>
             <p>
-                <strong>✅ Features:</strong> Formula parsing • YAML/Excel support • TUI • Interactive editing • State persistence • In-process rebuilding • Hash caching
+                <strong>[OK] Features:</strong> Formula parsing * YAML/Excel support * TUI * Interactive editing * State persistence * In-process rebuilding * Hash caching
             </p>
             <p>
-                <strong>⚠️ Experimental:</strong> This is "I had a weird idea and ran with it" software. Use it for learning, for fun, or because you too want compiled spreadsheet binaries.
+                <strong>[!!] Experimental:</strong> This is "I had a weird idea and ran with it" software. Use it for learning, for fun, or because you too want compiled spreadsheet binaries.
             </p>
             <p>
                 <span class="tongue-in-cheek">Actually, if you DO run your nuclear power plant's financial models on compiled spreadsheet binaries, please tell us. That would be an amazing story.</span>
@@ -331,11 +643,11 @@ Sheet2:
 
     <footer>
         <p>
-            <strong>Sheety</strong> — Spreadsheets, compiled. Because we can.<br>
-            <small>Built with Crystal. No spreadsheets were harmed in the making of this compiler (probably).</small>
+            <strong>SHEETY</strong> — Spreadsheets, compiled. Because we can.<br>
+            <small>(C) 2026 Roberto Alsina. Built with Crystal. No spreadsheets were harmed in the making of this compiler (probably).</small>
         </p>
         <p>
-            <a href="https://github.com/ralsina/sheety">GitHub</a>
+            <a href="https://github.com/ralsina/sheety">GITHUB.COM/RALSINA/SHEETY</a><span class="cursor" aria-hidden="true"></span>
         </p>
     </footer>
 
