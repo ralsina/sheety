@@ -67,8 +67,17 @@ module Sheety
     end
 
     private def self.handle_file(filename : String, save_to : String?) : Nil
-      # If file doesn't exist, create an empty spreadsheet
+      # If file doesn't exist, create an empty spreadsheet - but only for
+      # formats sheety can write, so a typo'd path fails loudly instead of
+      # leaving an empty junk file behind.
       unless File.exists?(filename)
+        ext = File.extname(filename).downcase
+        unless {".yaml", ".yml", ".xlsx"}.includes?(ext)
+          display_ext = ext.empty? ? "no extension" : "'#{ext}'"
+          STDERR.puts "Error: no spreadsheet at '#{filename}' and #{display_ext} is not a format sheety can create."
+          STDERR.puts "Supported formats: .yaml, .yml, .xlsx"
+          exit 1
+        end
         puts "Creating new spreadsheet: #{filename}"
         Spreadsheet.create_empty(filename)
       end
