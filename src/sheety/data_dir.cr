@@ -154,6 +154,39 @@ module Sheety
       end
     end
 
+    # Remove stale generated build artifacts from tmp/: content-hash-named
+    # binaries and generated sources, one set per spreadsheet revision. Every
+    # edit (and every sheety upgrade) creates a new set, so without pruning
+    # they accumulate forever. Keeps the newest `keep` hash groups; never
+    # touches UUID-named state files (.kv, .croupier, intermediate YAMLs).
+    def self.prune_tmp(keep : Int32 = 5) : Nil
+      tmp_path = File.join(path, "tmp")
+      return unless Dir.exists?(tmp_path)
+
+      # Group hash-named artifacts by their hash prefix: "<hash>",
+      # "<hash>.cr" and "<hash>_tasks_<n>.cr" all belong together.
+      artifact = /\A(?<hash>[\da-f]{16})(?:_tasks_\d+)?(?:\.cr)?\z/
+      groups = Hash(String, Array(String)).new
+      Dir.children(tmp_path).each do |name|
+        match = name.match(artifact)
+        next unless match
+        groups[match["hash"]] ||= Array(String).new
+        groups[match["hash"]] << File.join(tmp_path, name)
+      end
+
+      newest = groups.keys.sort! do |left, right|
+        mtime(groups[right].first) <=> mtime(groups[left].first)
+      end
+      newest.skip(keep).each do |hash|
+        groups[hash].each do |file|
+          File.delete(file) if File.exists?(file)
+        end
+      end
+    end
+
+    private def self.mtime(file : String) : Time
+      File.info?(file).try(&.modification_time) || Time::UNIX_EPOCH
+    end
 
     # Extract embedded source files to data directory (only works in sheety CLI)
     def self.extract_embedded_files : Nil
