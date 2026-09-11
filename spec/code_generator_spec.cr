@@ -1143,3 +1143,77 @@ describe Sheety::CroupierGenerator do
     end
   end
 end
+
+private def approximate_table
+  row1 = [10.0.as(Sheety::Functions::CellValue), "Ten"] of Sheety::Functions::CellValue
+  row2 = [20.0.as(Sheety::Functions::CellValue), "Twenty"] of Sheety::Functions::CellValue
+  row3 = [30.0.as(Sheety::Functions::CellValue), "Thirty"] of Sheety::Functions::CellValue
+  [row1, row2, row3] of Array(Sheety::Functions::CellValue)
+end
+
+describe Sheety::Functions do
+  describe "lookup functions (approximate match)" do
+    it "VLOOKUP approximate match returns the last value <= the lookup" do
+      result = Sheety::Functions.vlookup(25.0, approximate_table, 2.0)
+      result.should eq("Twenty")
+    end
+
+    it "VLOOKUP approximate match hits the exact boundary" do
+      result = Sheety::Functions.vlookup(30.0, approximate_table, 2.0)
+      result.should eq("Thirty")
+    end
+
+    it "VLOOKUP approximate match below the table returns #N/A" do
+      result = Sheety::Functions.vlookup(5.0, approximate_table, 2.0)
+      result.to_s.should eq("#N/A")
+    end
+
+    it "VLOOKUP approximate match above the table returns the last row" do
+      result = Sheety::Functions.vlookup(100.0, approximate_table, 2.0)
+      result.should eq("Thirty")
+    end
+
+    it "VLOOKUP exact match still works when the approximate mode would overshoot" do
+      result = Sheety::Functions.vlookup(25.0, approximate_table, 2.0, false)
+      result.to_s.should eq("#N/A")
+    end
+
+    it "HLOOKUP approximate match returns the last value <= the lookup" do
+      row1 = [10.0.as(Sheety::Functions::CellValue), 20.0.as(Sheety::Functions::CellValue), 30.0.as(Sheety::Functions::CellValue)] of Sheety::Functions::CellValue
+      row2 = ["Ten".as(Sheety::Functions::CellValue), "Twenty".as(Sheety::Functions::CellValue), "Thirty".as(Sheety::Functions::CellValue)] of Sheety::Functions::CellValue
+      table = [row1, row2] of Array(Sheety::Functions::CellValue)
+
+      Sheety::Functions.hlookup(25.0, table, 2.0).should eq("Twenty")
+      Sheety::Functions.hlookup(5.0, table, 2.0).to_s.should eq("#N/A")
+      Sheety::Functions.hlookup(100.0, table, 2.0).should eq("Thirty")
+    end
+  end
+
+  describe "Excel fidelity fixes" do
+    it "SQRT of a negative number returns #NUM!" do
+      Sheety::Functions.sqrt(-4.0).to_s.should eq("#NUM!")
+    end
+
+    it "RIGHT asks for zero, more, or negative characters correctly" do
+      Sheety::Functions.right("abc", 0.0).should eq("")
+      Sheety::Functions.right("abc", 10.0).should eq("abc")
+      Sheety::Functions.right("abc", -1.0).to_s.should eq("#VALUE!")
+      Sheety::Functions.right("abc", 2.0).should eq("bc")
+    end
+
+    it "LEFT rejects negative character counts" do
+      Sheety::Functions.left("abc", -1.0).to_s.should eq("#VALUE!")
+    end
+
+    it "DATEDIF day difference is signed like Excel" do
+      Sheety::Functions.datedif(10.0, 3.0, "D").to_s.should eq("#NUM!")
+      Sheety::Functions.datedif(3.0, 10.0, "D").should eq(7.0)
+    end
+
+    it "MIN and MAX of nothing are 0, not #NUM!" do
+      Sheety::Functions.min([] of Sheety::Functions::CellValue).should eq(0.0)
+      Sheety::Functions.max([] of Sheety::Functions::CellValue).should eq(0.0)
+      Sheety::Functions.min(Sheety::Functions.flatten).should eq(0.0)
+    end
+  end
+end

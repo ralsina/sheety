@@ -6,7 +6,7 @@ module Sheety
     # BigFloat is used for arbitrary precision arithmetic where it matters (e.g. SUM),
     # while Float64 is accepted as the natural result of most math functions (Math.sqrt,
     # Random.rand, etc.) so we don't fight the standard library's numeric types.
-    alias CellValue = BigFloat | Float64 | String | Bool | ErrorValue | Nil
+    alias CellValue = BigFloat | Float64 | String | Bool | ErrorValue?
 
     # Default precision for BigFloat operations (enough for most Excel use cases)
     DEFAULT_PRECISION = 64
@@ -119,6 +119,11 @@ module Sheety
 
     def self.num : ErrorValue
       ErrorValue.new("#NUM!")
+    end
+
+    # Excel's MIN/MAX of an empty set is 0, not an error.
+    def self.zero : CellValue
+      BigFloat.new(0.0, precision: DEFAULT_PRECISION)
     end
 
     def self.na : ErrorValue
@@ -297,7 +302,7 @@ module Sheety
           end
         end
       end
-      return num if all_numbers.empty?
+      return zero if all_numbers.empty?
       all_numbers.min
     end
 
@@ -312,14 +317,14 @@ module Sheety
       values.each do |arr|
         all_numbers.concat(extract_numbers(arr))
       end
-      return num if all_numbers.empty?
+      return zero if all_numbers.empty?
       all_numbers.min
     end
 
     # MIN: Single array overload for backward compatibility
     def self.min(values : Array(CellValue)) : CellValue
       numbers = extract_numbers(values)
-      return num if numbers.empty?
+      return zero if numbers.empty?
       numbers.min
     end
 
@@ -336,7 +341,7 @@ module Sheety
           end
         end
       end
-      return num if all_numbers.empty?
+      return zero if all_numbers.empty?
       all_numbers.max
     end
 
@@ -351,14 +356,14 @@ module Sheety
       values.each do |arr|
         all_numbers.concat(extract_numbers(arr))
       end
-      return num if all_numbers.empty?
+      return zero if all_numbers.empty?
       all_numbers.max
     end
 
     # MAX: Single array overload for backward compatibility
     def self.max(values : Array(CellValue)) : CellValue
       numbers = extract_numbers(values)
-      return num if numbers.empty?
+      return zero if numbers.empty?
       numbers.max
     end
 
@@ -432,7 +437,8 @@ module Sheety
     def self.sqrt(value : CellValue) : CellValue
       num = to_float(value)
       return value if num.nil?
-      return num if num < 0
+      # Local `num` shadows the #NUM! helper, hence the explicit receiver.
+      return Sheety::Functions.num if num < 0
       Math.sqrt(num)
     end
 
@@ -523,6 +529,7 @@ module Sheety
     def self.left(text : CellValue, num_chars : CellValue = 1.0) : CellValue
       str = to_string(text)
       n = to_float(num_chars) || 1.0
+      return value if n < 0
       str[0...(n.to_i)]
     end
 
@@ -530,7 +537,10 @@ module Sheety
     def self.right(text : CellValue, num_chars : CellValue = 1.0) : CellValue
       str = to_string(text)
       n = to_float(num_chars) || 1.0
-      return "" if n > str.size
+      return value if n < 0
+      return "" if n == 0
+      # Asking for more characters than there are yields the whole string.
+      return str if n > str.size
       str[-(n.to_i)..]
     end
 
@@ -961,8 +971,9 @@ module Sheety
         months -= 1 if end_epoch < TimeHelpers.add_months(start_epoch, months.to_i)
         months.to_f
       when "D"
-        # Days
-        (end_d - start).abs.to_f
+        # Days; Excel returns #NUM! when the end precedes the start.
+        return num if end_d < start
+        (end_d - start).to_f
       when "MD"
         # Days ignoring months and years
         day_diff = end_epoch.day - start_epoch.day
@@ -1128,6 +1139,11 @@ module Sheety
 
       exact_match = range_lookup == false || to_bool(range_lookup) == false
 
+      # No explicit type annotation: generated programs call this with
+      # Array(String) tables (fetch_cell_range results), and the compiler
+      # instantiates this method per call site, so a pinned annotation
+      # wouldn't type-check for those instantiations.
+      candidate = nil
       table_array.each do |row|
         next if row.empty?
 
@@ -1135,22 +1151,21 @@ module Sheety
         next if compare_result.nil?
 
         if exact_match
-          if compare_result == 0 && (col_idx.to_i - 1) < row.size
-            return row[col_idx.to_i - 1]
+          if compare_result == 0
+            candidate = row
+            break
           end
-        else
-          # Approximate match (table must be sorted)
-          if compare_result <= 0 && (col_idx.to_i - 1) < row.size
-            return row[col_idx.to_i - 1]
-          end
+        elsif compare_result >= 0
+          # Approximate match: the table's first column is sorted ascending,
+          # so the answer is the LAST value <= the lookup value.
+          candidate = row
         end
       end
 
-      if exact_match
-        na
-      else
-        value
-      end
+      return na if candidate.nil?
+
+      col = col_idx.to_i - 1
+      col < candidate.size ? candidate[col] : ref
     end
 
     # HLOOKUP: Horizontal lookup
@@ -1160,14 +1175,15 @@ module Sheety
 
       exact_match = range_lookup == false || to_bool(range_lookup) == false
 
-      # Find matching column in first row
-      match_col = -1
-
       if table_array.empty? || table_array[0].empty?
         return value
       end
 
       first_row = table_array[0]
+
+      # Find matching column in first row: exact match, or (approximate
+      # mode, sorted ascending) the LAST value <= the lookup value.
+      match_col = -1
 
       first_row.each_with_index do |cell, col|
         compare_result = compare_values(lookup_value, cell)
@@ -1178,14 +1194,12 @@ module Sheety
             match_col = col
             break
           end
-        elsif compare_result <= 0
+        elsif compare_result >= 0
           match_col = col
-          break
         end
       end
 
-      return na if exact_match && match_col == -1
-      return value if match_col == -1
+      return na if match_col == -1
 
       # Return value from specified row
       target_row = row_idx.to_i - 1
