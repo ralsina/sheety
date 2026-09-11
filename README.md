@@ -71,6 +71,14 @@ chmod +x sheety
 ./sheety my_sheet.yaml
 ```
 
+> **⚠️ Requirements:** sheety itself is a single binary, but *working with
+> spreadsheets* is not dependency-free. Launching the interactive TUI,
+> editing formulas (each edit recompiles the program), and converting to
+> `.cr`/`.sheety` require a **Crystal toolchain (`crystal` + `shards`) on
+> your PATH** and network access on the first run (dependencies are fetched
+> into `~/.local/share/sheety`). Converting between `.yaml` and `.xlsx`,
+> and viewing an already-compiled spreadsheet binary, need nothing extra.
+
 ### Build from Source
 
 ```bash
@@ -129,6 +137,27 @@ Sheet2:
 - Enter to edit current cell
 - S to save spreadsheet
 - Q to quit
+
+Value edits live in the recalculation store until you save: the status
+bar shows `[MODIFIED - S to save]` while there are unsaved value edits.
+Quitting without saving discards them (formula edits are auto-saved
+because they trigger a rebuild).
+
+## Limitations
+
+- **Named ranges** parse but cannot be resolved; formulas using them show
+  `#NAME?` (the generator warns about this at build time).
+- **Whole-row ranges** (`1:10`) are not supported; formulas using them
+  produce `#VALUE!` with a warning. Whole-column ranges (`A:B`) work and
+  are clamped to the 1000-row grid.
+- **Shared formulas** (Excel's representation for dragged-down formulas)
+  are imported by translating the master formula, but exotic cases may
+  translate imperfectly.
+- **Excel type roundtrip** is not fully type-preserving: a cell containing
+  the text `"10.5"` may come back from a `.xlsx` conversion as the number
+  `10.5`.
+- **Error values** are approximations: e.g. division by zero shows
+  `#ERROR: ...` rather than Excel's `#DIV/0!`.
 
 ## Development
 
