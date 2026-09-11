@@ -11,7 +11,7 @@ module Sheety
   # Spreadsheet data structures and converters
   module Spreadsheet
     # Cell data structure
-    alias CellValue = String | BigFloat | Bool | Nil
+    alias CellValue = String | BigFloat | Bool?
     alias CellData = Hash(String, CellValue)     # "formula" => "...", "value" => ...
     alias SheetData = Hash(String, CellData)     # "A1" => {...}, "B1" => {...}
     alias WorkbookData = Hash(String, SheetData) # "Sheet1" => {...}, "Sheet2" => {...}
@@ -171,9 +171,16 @@ module Sheety
           cell_data.as_h.each do |key, value|
             case key.as_s
             when "formula"
-              cell["formula"] = value.as_s
+              if formula_text = value.as_s?
+                cell["formula"] = formula_text
+              else
+                STDERR.puts "Warning: #{sheet_name.as_s}!#{cell_ref.as_s}: ignoring non-string formula #{value.inspect}"
+              end
             when "value"
               cell["value"] = YAMLParser.parse_value(value)
+            else
+              # Typos like "forumla:" would otherwise vanish silently.
+              STDERR.puts "Warning: #{sheet_name.as_s}!#{cell_ref.as_s}: ignoring unknown key '#{key}' (expected 'formula' or 'value')"
             end
           end
 
