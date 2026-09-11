@@ -23,7 +23,7 @@ module Sheety
     # without sheety installed, so this must not raise — callers handle nil.
     private def self.sheety_mtime : Time?
       sheety_binary = Process.find_executable("sheety")
-      return nil unless sheety_binary
+      return unless sheety_binary
       File.info(sheety_binary).modification_time
     end
 
@@ -120,6 +120,9 @@ module Sheety
             baked_file_system:
               github: ralsina/baked_file_system
               commit: beb373124c7a235cfb9cd94e36849d8168eaa04b
+            xlsx-parser:
+              github: d1ceward/xlsx-parser
+              version: ~> 1.4
           YAML
 
         File.write(shard_path, shard_content)
@@ -150,6 +153,7 @@ module Sheety
         end
       end
     end
+
 
     # Extract embedded source files to data directory (only works in sheety CLI)
     def self.extract_embedded_files : Nil
