@@ -79,7 +79,7 @@ module Sheety
         source_file: effective_intermediate,
         original_filename: filename,
       )
-    rescue ex : Pipeline::BuildError
+    rescue ex : Pipeline::BuildError | SetupError
       STDERR.puts "\nError: #{ex.message}"
       nil
     end

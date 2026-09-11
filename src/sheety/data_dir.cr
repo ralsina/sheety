@@ -117,6 +117,9 @@ module Sheety
             termisu:
               github: omarluq/termisu
               version: ~> 0.6.2
+            tablo:
+              github: hutou/tablo
+              version: ~> 1.1.0
             baked_file_system:
               github: ralsina/baked_file_system
               commit: beb373124c7a235cfb9cd94e36849d8168eaa04b
@@ -137,7 +140,9 @@ module Sheety
       end
     end
 
-    # Ensure dependencies are installed (runs shards install if lib/ doesn't exist)
+    # Ensure dependencies are installed (runs shards install if lib/ doesn't exist).
+    # Raises SetupError on failure: proceeding without lib/ only produces a
+    # confusing missing-require error from the compiler later.
     def self.ensure_dependencies : Nil
       lib_path = File.join(path, "lib")
 
@@ -148,8 +153,11 @@ module Sheety
           output: Process::Redirect::Inherit,
           error: Process::Redirect::Inherit)
 
-        if status != 0
-          STDERR.puts "\nWarning: Failed to install dependencies"
+        unless status.success?
+          raise SetupError.new(
+            "Failed to install dependencies in #{path}.\n" \
+            "The generated binary needs them to compile; is 'shards' on PATH and is there network access?"
+          )
         end
       end
     end

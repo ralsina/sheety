@@ -1,4 +1,9 @@
 module Sheety
+  # Raised when the generated-binary build environment can't be set up
+  # (e.g. `shards install` failed in the data directory).
+  class SetupError < Exception
+  end
+
   # Base error class for all formula errors
   class FormulaError < Exception
     def initialize(message : String? = nil)
