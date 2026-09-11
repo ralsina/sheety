@@ -113,6 +113,8 @@ module Sheety
       ln = Sheety::Functions.to_float(left)
       rn = Sheety::Functions.to_float(right)
       return unless ln && rn
+      # BigFloat division by zero raises; Excel shows #DIV/0!.
+      return format_result(Sheety::Functions.div0) if rn == 0
       format_result(ln / rn)
     end
 
@@ -120,6 +122,8 @@ module Sheety
       ln = Sheety::Functions.to_float(left)
       rn = Sheety::Functions.to_float(right)
       return unless ln && rn
+      # Zero to a negative power raises; Excel shows #DIV/0!.
+      return format_result(Sheety::Functions.div0) if ln == 0 && rn < 0
       # For integer exponents, use BigFloat's ** operator
       if rn == rn.to_i
         format_result(ln ** rn.to_i)

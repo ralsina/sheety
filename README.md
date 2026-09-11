@@ -153,8 +153,9 @@ because they trigger a rebuild).
 - **Shared formulas** (Excel's representation for dragged-down formulas)
   are imported by translating the master formula, but exotic cases may
   translate imperfectly.
-- **Error values** are approximations: e.g. division by zero shows
-  `#ERROR: ...` rather than Excel's `#DIV/0!`.
+- **Error values** are approximations: division by zero is `#DIV/0!`, but
+  most other runtime failures show a generic `#ERROR: ...` rather than
+  Excel's specific error codes.
 
 ## Development
 
