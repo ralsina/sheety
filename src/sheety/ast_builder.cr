@@ -112,7 +112,7 @@ module Sheety
             _, elem_builder = elem_parser.ast("=#{elem_str}")
             elem_ast = elem_builder.root
             elements << elem_ast
-          rescue ex : Sheety::FormulaError
+          rescue Sheety::FormulaError
             # If parsing fails, create a placeholder
             # Check if it's a number
             if elem_str =~ /^-?\d+(\.\d+)?$/

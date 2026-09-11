@@ -26,8 +26,6 @@ module Sheety
         end
       when Bool
         value ? BigFloat.new(1.0, precision: precision) : BigFloat.new(0.0, precision: precision)
-      else
-        nil
       end
     end
 
@@ -185,8 +183,6 @@ module Sheety
         end
       when Bool
         value ? BigFloat.new(1.0, precision: DEFAULT_PRECISION) : BigFloat.new(0.0, precision: DEFAULT_PRECISION)
-      else
-        nil
       end
     end
 
@@ -474,7 +470,6 @@ module Sheety
       when BigFloat then value != BigFloat.new(0.0, precision: DEFAULT_PRECISION)
       when Float64  then value != 0.0
       when String   then !value.empty?
-      else               nil
       end
     end
 

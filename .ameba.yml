@@ -13,6 +13,17 @@ Metrics/CyclomaticComplexity:
   # worth the regression risk while they lack dedicated specs.
   Enabled: false
 
+Style/MultilineStringLiteral:
+  # croupier_generator builds the generated programs' Crystal source as
+  # multiline string templates. Converting them to heredocs is pure churn
+  # with a real corruption risk (an automated conversion once mangled the
+  # generated code); the templates read fine as they are.
+  Enabled: false
+
+Style/PercentLiteralDelimiters:
+  # Same generated-source templates; see MultilineStringLiteral above.
+  Enabled: false
+
 Documentation/DocumentationAdmonition:
   # TODO comments are allowed
   Enabled: false

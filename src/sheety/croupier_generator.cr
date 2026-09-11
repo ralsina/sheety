@@ -115,7 +115,7 @@ module Sheety
     private def parse_formula(formula : String) : Node?
       _, builder = Parser.new.ast(formula)
       builder.root
-    rescue e : FormulaError
+    rescue FormulaError
       nil
     end
 

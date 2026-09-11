@@ -35,7 +35,7 @@ jobs:
       # Scoped to src+spec: examples/ contains generated code (see .ameba.yml).
       - name: Install ameba
         run: |
-          git clone --depth 1 --branch v1.6.4 https://github.com/crystal-ameba/ameba /tmp/ameba
+          git clone --depth 1 --branch v1.7.0 https://github.com/crystal-ameba/ameba /tmp/ameba
           cd /tmp/ameba && shards install
           crystal build src/ameba.cr -o "$HOME/ameba"
       - name: Run ameba

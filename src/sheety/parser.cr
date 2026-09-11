@@ -77,7 +77,7 @@ module Sheety
           end
         rescue TokenError
           # Try next filter
-        rescue ex : FormulaError
+        rescue FormulaError
           raise FormulaError.new("Error parsing: #{expression}")
         end
 
