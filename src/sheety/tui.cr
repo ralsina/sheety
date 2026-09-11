@@ -84,6 +84,10 @@ module Sheety
     @formula_bar_height : Int32 = 1
     @notification : Notification?
 
+    # True when value edits have not been saved to the source file yet
+    # (edits live in the recalculation store until saved with S)
+    @dirty : Bool = false
+
     # Filename edit mode for save prompt
     @filename_edit_mode : Bool = false
     @filename_edit_buffer : String = ""
@@ -148,7 +152,6 @@ module Sheety
       @last_click_time = 0_i64
       @last_click_col = -1
       @last_click_row = -1
-      @click_count = 0
 
       # Initialize grid for current sheet
       initialize_grid
@@ -216,7 +219,7 @@ module Sheety
             handle_key_event(event)
             # Clear notification on any key press
             clear_notification
-            render if should_render?(event)
+            render
           when Termisu::Event::Mouse
             handle_mouse_event(event)
             render
@@ -342,7 +345,6 @@ module Sheety
       when .back_tab?
         # Previous sheet
         switch_sheet(-1)
-      when .q?
       end
     end
 
@@ -509,7 +511,6 @@ module Sheety
         time_diff = current_time - @last_click_time
         if time_diff < 500
           is_double_click = true
-          @click_count = 0
         end
       end
 
@@ -647,11 +648,6 @@ module Sheety
       is_formula = @edit_buffer.starts_with?("=")
 
       if is_formula
-        # Ensure formula starts with = (add it if missing)
-        unless @edit_buffer.starts_with?("=")
-          @edit_buffer = "=" + @edit_buffer
-        end
-
         # Update or add the formula in sheet_data
         if cells = @sheet_data[sheet_name]?
           # Find the cell in sheet_data and update its formula
@@ -682,75 +678,80 @@ module Sheety
 
         # Ensure we have an intermediate file
         rebuild_file = @intermediate_file || @source_file
-        return if rebuild_file.nil? || rebuild_file.empty?
+        if rebuild_file.nil? || rebuild_file.empty?
+          @edit_mode = false
+          @edit_buffer = ""
+          @edit_cursor = 0
+          return
+        end
 
         # Save current state to intermediate file as YAML
         # Build YAML structure directly from current state
         save_to_yaml_file(rebuild_file)
 
-        if rebuild_file && !rebuild_file.empty?
-          {% unless flag?(:light_mode) %}
-            # Check if crystal is available for rebuilding
-            unless Process.find_executable("crystal")
-              show_notification("Cannot rebuild: crystal not found", Notification::Level::Error)
-              @edit_mode = false
-              @edit_buffer = ""
-              @edit_cursor = 0
-              render
-              return
-            end
+        # The auto-save flushed all current values to the intermediate file,
+        # so there is nothing unsaved left.
+        @dirty = false
 
-            # Show notification
-            show_notification("Rebuilding...", Notification::Level::Info)
+        {% unless flag?(:light_mode) %}
+          # Check if crystal is available for rebuilding
+          unless Process.find_executable("crystal")
+            show_notification("Cannot rebuild: crystal not found", Notification::Level::Error)
             @edit_mode = false
             @edit_buffer = ""
             @edit_cursor = 0
             render
+            return
+          end
 
-            # Build the new binary in background
-            # After build completes, we'll exec to replace this process
-            @rebuilding = true
-            spawn do
-              # Use Rebuilder to rebuild in-process
-              # Use the original source file for tracking, but rebuild from intermediate file
-              original_for_rebuild = @original_source_file || rebuild_file
-              rebuilder = Sheety::Rebuilder.new(original_for_rebuild)
-              rebuilder.intermediate_file = rebuild_file
+          # Show notification
+          show_notification("Rebuilding...", Notification::Level::Info)
+          @edit_mode = false
+          @edit_buffer = ""
+          @edit_cursor = 0
+          render
 
-              # Set UUID if we have it (from _ui_state in YAML)
-              begin
-                yaml_content = File.read(rebuild_file)
-                data = YAML.parse(yaml_content)
-                if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
-                  rebuilder.spreadsheet_uuid = data["_ui_state"]["spreadsheet_uuid"].as_s
-                end
-              rescue
-                # Ignore errors reading UUID
+          # Build the new binary in background
+          # After build completes, we'll exec to replace this process
+          @rebuilding = true
+          spawn do
+            # Use Rebuilder to rebuild in-process
+            # Use the original source file for tracking, but rebuild from intermediate file
+            original_for_rebuild = @original_source_file || rebuild_file
+            rebuilder = Sheety::Rebuilder.new(original_for_rebuild)
+            rebuilder.intermediate_file = rebuild_file
+
+            # Set UUID if we have it (from _ui_state in YAML)
+            begin
+              yaml_content = File.read(rebuild_file)
+              data = YAML.parse(yaml_content)
+              if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
+                rebuilder.spreadsheet_uuid = data["_ui_state"]["spreadsheet_uuid"].as_s
               end
-
-              binary_path = rebuilder.rebuild
-
-              @rebuilding = false
-
-              if binary_path && File.exists?(binary_path)
-                @pending_exec = binary_path
-              else
-                show_notification("Rebuild failed", Notification::Level::Error)
-              end
+            rescue
+              # Ignore errors reading UUID
             end
-          {% else %}
-            # Light mode: formulas are read-only, just show a message
-            show_notification("Formulas are read-only in light mode", Notification::Level::Warning)
-          {% end %}
-        else
-          # Fallback: exit with code 42 if no source file known
-          exit 42
-        end
+
+            binary_path = rebuilder.rebuild
+
+            @rebuilding = false
+
+            if binary_path && File.exists?(binary_path)
+              @pending_exec = binary_path
+            else
+              show_notification("Rebuild failed", Notification::Level::Error)
+            end
+          end
+        {% else %}
+          # Light mode: formulas are read-only, just show a message
+          show_notification("Formulas are read-only in light mode", Notification::Level::Warning)
+        {% end %}
       else
         # Regular value cell - just update via callback
         if callback = @value_update_callback
           callback.call(sheet_name, cell_ref, @edit_buffer)
         end
+        @dirty = true
 
         # Update @sheet_data so the new cell is included in future initialize_grid calls
         if data = @sheet_data[sheet_name]?
@@ -827,6 +828,9 @@ module Sheety
       if intermediate = @intermediate_file
         do_save(intermediate) if intermediate != filename
       end
+
+      # Everything is flushed to disk now.
+      @dirty = false
     end
 
     private def do_save(filename : String) : Nil
@@ -1063,7 +1067,7 @@ module Sheety
       yaml_any_structure
     end
 
-    private def convert_cell_value_to_yaml(value : Sheety::Functions::CellValue) : String | BigFloat | Bool | Nil
+    private def convert_cell_value_to_yaml(value : Sheety::Functions::CellValue) : String | BigFloat | Bool?
       case value
       when String, BigFloat, Bool, Nil
         value
@@ -1150,11 +1154,6 @@ module Sheety
     private def handle_resize(event : Termisu::Event::Resize) : Nil
       @grid_width = event.width
       @grid_height = event.height - @header_height - @status_height - @formula_bar_height
-    end
-
-    private def should_render?(event : Termisu::Event::Key) : Bool
-      # Render on all key events for now
-      true
     end
 
     private def render : Nil
@@ -1374,6 +1373,11 @@ module Sheety
       if notif = @notification
         status_text = notif.text
         status_color = notif.level.color
+      elsif @dirty
+        # Value edits live in the recalculation store until saved with S;
+        # make that visible so quitting doesn't come as a surprise.
+        status_text = "#{sheet_name}!#{cell_ref}  [MODIFIED - S to save]"
+        status_color = Termisu::Color.yellow
       else
         status_text = "#{sheet_name}!#{cell_ref}"
         status_color = @fg_status
