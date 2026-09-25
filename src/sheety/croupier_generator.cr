@@ -54,10 +54,12 @@ module Sheety
     @formulas : Hash(String, FormulaInfo)
     @generator : CodeGenerator
     @extractor : DependencyExtractor
-    @state_file_path : String?
-    @kv_store_path : String?
     @spreadsheet_uuid : String?
     @original_filename : String?
+    # Initial cursor position (from the source workbook's _ui_state), embedded
+    # as literals so the generated program doesn't need the source file at
+    # startup.
+    @initial_position : {sheet: String, cell: String}?
     # Maps FormulaInfo#key -> index of its shared calc_shape_N helper.
     # Built once per generate_source call; nil outside that scope.
     @shape_assignment : Hash(String, Int32)?
@@ -70,10 +72,9 @@ module Sheety
       @formulas = Hash(String, FormulaInfo).new
       @generator = CodeGenerator.new
       @extractor = DependencyExtractor.new
-      @state_file_path = nil
-      @kv_store_path = nil
       @spreadsheet_uuid = nil
       @original_filename = nil
+      @initial_position = nil
       @shape_assignment = nil
       @validation_problems = Array(String).new
     end
@@ -84,21 +85,19 @@ module Sheety
       self
     end
 
-    # Set the path for the .croupier state file
-    def state_file_path=(path : String) : self
-      @state_file_path = path
-      self
-    end
-
-    # Set the path for the persistent k/v store
-    def kv_store_path=(path : String) : self
-      @kv_store_path = path
-      self
-    end
-
-    # Set the spreadsheet UUID (for tracking purposes)
+    # Set the spreadsheet UUID. The UUID is the only location-related identity
+    # baked into the generated program: state, k/v cache and intermediate-save
+    # locations are all derived from it at runtime, under the data dir of
+    # whoever runs the binary.
     def spreadsheet_uuid=(uuid : String) : self
       @spreadsheet_uuid = uuid
+      self
+    end
+
+    # Set the initial cursor position to restore at startup (the source
+    # workbook's saved active sheet/cell).
+    def initial_position=(position : {sheet: String, cell: String}) : self
+      @initial_position = position
       self
     end
 
@@ -190,7 +189,7 @@ module Sheety
     # to their chosen path and the aux files into the same directory.
     # `chunk_prefix` names the chunk files (e.g. "abc123" -> "abc123_tasks_0.cr")
     # so sheets sharing a tmp dir don't collide; required only when splitting.
-    def generate_source(initial_values : Hash(String, BigFloat | String | Bool) = Hash(String, BigFloat | String | Bool).new, interactive : Bool = false, source_file : String? = nil, intermediate_file : String? = nil, chunk_prefix : String = "sheety") : GeneratedSource
+    def generate_source(initial_values : Hash(String, BigFloat | String | Bool) = Hash(String, BigFloat | String | Bool).new, interactive : Bool = false, source_file : String? = nil, chunk_prefix : String = "sheety") : GeneratedSource
       plans = build_plans
       unless @validation_problems.empty?
         STDERR.puts "\nWarning: #{@validation_problems.size} formula problem(s) detected:"
@@ -225,33 +224,27 @@ module Sheety
         )
       end
 
+      # DataDir resolves state/cache/save locations at runtime; require it
+      # whenever the UUID is baked in (the interactive mode gets it via tui
+      # already, but the dependency might as well be explicit).
+      source += %(require "../src/sheety/data_dir"\n) if @spreadsheet_uuid
+
       # First add setup code (initial values)
       source += generate_setup_code(initial_values, plans)
       source += "\n\n"
 
-      # Ensure directories exist for state files
-      if @state_file_path || @kv_store_path
-        source += "# Ensure parent directories exist for state files\n"
-        if @state_file_path
-          source += "state_dir = File.dirname(#{@state_file_path.inspect})\n"
-          source += "Dir.mkdir_p(state_dir) unless Dir.exists?(state_dir)\n"
-        end
-        if @kv_store_path
-          source += "Dir.mkdir_p(#{@kv_store_path.inspect}) unless Dir.exists?(#{@kv_store_path.inspect})\n"
-        end
-        source += "\n"
-      end
-
-      # Configure state file path if set
-      if @state_file_path
+      # State and k/v cache files are derived at runtime from the running
+      # user's data dir (XDG_DATA_HOME or ~/.local/share), keyed by the
+      # spreadsheet's UUID. Only the UUID is baked in, so the binary works
+      # (and keeps its state separate) on any machine and any account.
+      if uuid = @spreadsheet_uuid
+        source += "# Resolve state file locations at runtime (portable across machines)\n"
+        source += "state_dir = File.join(Sheety::DataDir.path, \"tmp\")\n"
+        source += "Dir.mkdir_p(state_dir) unless Dir.exists?(state_dir)\n"
         source += "# Configure Croupier state file path\n"
-        source += "Croupier::TaskManager.state_file = #{@state_file_path.inspect}\n\n"
-      end
-
-      # Configure persistent k/v store if set
-      if @kv_store_path
+        source += "Croupier::TaskManager.state_file = File.join(state_dir, #{(uuid + ".croupier").inspect})\n\n"
         source += "# Configure persistent k/v store for caching results across runs\n"
-        source += "Croupier::TaskManager.use_persistent_store(#{@kv_store_path.inspect})\n\n"
+        source += "Croupier::TaskManager.use_persistent_store(File.join(state_dir, #{(uuid + ".kv").inspect}))\n\n"
       end
 
       source += "\n"
@@ -273,7 +266,7 @@ module Sheety
 
       # Finally, run the tasks and print results
       if interactive
-        source += generate_tui_mode(initial_values, source_file, intermediate_file)
+        source += generate_tui_mode(initial_values, source_file)
       else
         source += generate_execution_code(initial_values)
       end
@@ -657,7 +650,7 @@ puts ""
     end
 
     # Generate TUI mode
-    private def generate_tui_mode(initial_values : Hash(String, BigFloat | String | Bool), source_file : String?, intermediate_file : String?) : String
+    private def generate_tui_mode(initial_values : Hash(String, BigFloat | String | Bool), source_file : String?) : String
       # Get the sheet data collection code
       sheets_data = {} of String => Hash(String, Hash(String, String))
 
@@ -706,6 +699,36 @@ puts ""
         "#{sheet.inspect} => sheet_#{sheet_var_name}_data"
       end.join(",\n    ")
 
+      # File locations, resolved at runtime so the binary is portable: the
+      # intermediate auto-save is derived from the UUID under the running
+      # user's data dir, and the original file is only wired up while it
+      # still exists (and is writable) where it was at build time —
+      # otherwise the TUI prompts for a save target instead of writing
+      # somewhere stale.
+      file_setup_code = String.build do |io|
+        if uuid = @spreadsheet_uuid
+          io << "# Intermediate file for formula-edit auto-saves (resolved at runtime)\n"
+          io << %(tui.intermediate_file = File.join(Sheety::DataDir.path, #{(uuid + ".yaml").inspect})\n)
+          io << "\n"
+        end
+        if original_source = @original_filename || source_file
+          io << "# Save target: the original file, while it is still around\n"
+          io << %(original_source = #{original_source.inspect}\n)
+          io << %(if File.exists?(original_source) && File.writable?(original_source)\n)
+          io << %(  tui.source_file = original_source\n)
+          io << %(  tui.original_source_file = original_source\n)
+          io << %(end\n)
+        end
+      end
+
+      # The saved cursor position is embedded as literals; the binary never
+      # reads the source file at startup.
+      initial_position_code = if position = @initial_position
+                                %(tui.set_initial_position(#{position[:sheet].inspect}, #{position[:cell].inspect}))
+                              else
+                                "# No saved cursor position to restore"
+                              end
+
       %{
 # Execute all tasks
 puts "=== Executing Croupier Tasks ==="
@@ -732,15 +755,7 @@ tui = Sheety::TUI.new(sheets, sheet_data) do |sheet, cell_ref, new_value|
   Croupier::TaskManager.run_tasks
 end
 
-# Set source file for save functionality
-#{source_file ? "tui.source_file = #{source_file.inspect}" : ""}
-
-# Set original source file for saves (persists across rebuilds)
-#{@original_filename ? "tui.original_source_file = #{@original_filename.inspect}" : (source_file ? "tui.original_source_file = #{source_file.inspect}" : "")}
-
-# Set intermediate file for auto-saves (formula edits)
-#{intermediate_file ? "tui.intermediate_file = #{intermediate_file.inspect}" : ""}
-
+#{file_setup_code}
 # Set value getter callback to fetch fresh values from Croupier store
 tui.set_value_getter do |sheet, cell_ref|
   fetch_cell(sheet.empty? ? cell_ref : sheet + "!" + cell_ref)
@@ -751,23 +766,8 @@ tui.set_refresh_callback do
   tui.refresh_current_sheet
 end
 
-# Restore UI state if available
-#{source_file ? %{
-# Try to restore cursor position from YAML
-begin
-  yaml_data = YAML.parse(File.read(#{source_file.inspect}))
-  if yaml_data.as_h.has_key?("_ui_state")
-    ui_state = yaml_data["_ui_state"]
-    if ui_state.as_h.has_key?("active_sheet") && ui_state.as_h.has_key?("active_cell")
-      saved_sheet = ui_state["active_sheet"].as_s
-      saved_cell = ui_state["active_cell"].as_s
-      tui.set_initial_position(saved_sheet, saved_cell)
-    end
-  end
-rescue
-  # Ignore errors restoring UI state
-end
-} : ""}
+# Restore the saved cursor position
+#{initial_position_code}
 
 # Run the TUI
 tui.run

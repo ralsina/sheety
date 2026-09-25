@@ -139,7 +139,8 @@ module Sheety
       puts "Building #{build_paths.binary_name}..."
       binary_name = Pipeline.build(data, spreadsheet_uuid, file_hash,
         source_file: source_file,
-        tui_intermediate_file: intermediate_file)
+        ui_position: Spreadsheet.read_ui_position(source_file),
+      )
 
       puts "Built successfully: #{binary_name}"
 

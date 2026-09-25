@@ -807,14 +807,21 @@ module Sheety
     end
 
     def save_to_yaml : Nil
-      # Use original source file for saves, not intermediate file
+      # Use original source file for saves, not intermediate file. When there
+      # is none (e.g. a moved binary whose original stayed behind), offer a
+      # default name so the user is prompted for a save target instead of
+      # the save being silently dropped.
       source_file = @original_source_file || @source_file
-      return if source_file.nil? || source_file.empty?
+      default_name = if source_file && !source_file.empty?
+                       source_file
+                     else
+                       "spreadsheet.yaml"
+                     end
 
       # Enter filename edit mode with current filename as default
       @filename_edit_mode = true
-      @filename_edit_buffer = source_file
-      @filename_edit_cursor = source_file.size
+      @filename_edit_buffer = default_name
+      @filename_edit_cursor = default_name.size
     end
 
     private def save_with_filename(filename : String) : Nil
@@ -928,7 +935,7 @@ module Sheety
         # Generate the source code (interactive for TUI binary)
         temp_source = File.join(DataDir.path, "tmp", "#{File.basename(source_file, ext)}.cr")
         chunk_prefix = File.basename(temp_source, File.extname(temp_source))
-        generated = generator.generate_source(initial_values, true, source_file, nil, chunk_prefix)
+        generated = generator.generate_source(initial_values, true, source_file, chunk_prefix)
 
         if generated.entrypoint.empty?
           show_notification("Failed to generate source code", Notification::Level::Error)
@@ -963,7 +970,7 @@ module Sheety
 
         # Generate the source code (non-interactive for standalone code generation)
         chunk_prefix = File.basename(source_file, File.extname(source_file))
-        generated = generator.generate_source(initial_values, true, source_file, nil, chunk_prefix)
+        generated = generator.generate_source(initial_values, true, source_file, chunk_prefix)
 
         if generated.entrypoint.empty?
           show_notification("Failed to generate source code", Notification::Level::Error)

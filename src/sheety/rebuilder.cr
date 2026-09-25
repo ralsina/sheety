@@ -78,6 +78,7 @@ module Sheety
         DataDir.file_hash(@intermediate_file || filename),
         source_file: effective_intermediate,
         original_filename: filename,
+        ui_position: Spreadsheet.read_ui_position(effective_intermediate),
       )
     rescue ex : Pipeline::BuildError | SetupError
       STDERR.puts "\nError: #{ex.message}"
