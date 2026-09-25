@@ -722,14 +722,8 @@ module Sheety
             rebuilder.intermediate_file = rebuild_file
 
             # Set UUID if we have it (from _ui_state in YAML)
-            begin
-              yaml_content = File.read(rebuild_file)
-              data = YAML.parse(yaml_content)
-              if data.as_h? && data["_ui_state"]? && data["_ui_state"]["spreadsheet_uuid"]?
-                rebuilder.spreadsheet_uuid = data["_ui_state"]["spreadsheet_uuid"].as_s
-              end
-            rescue
-              # Ignore errors reading UUID
+            if (uuid = spreadsheet_uuid)
+              rebuilder.spreadsheet_uuid = uuid
             end
 
             binary_path = rebuilder.rebuild
@@ -804,6 +798,25 @@ module Sheety
 
     def refresh_current_sheet : Nil
       initialize_grid
+    end
+
+    # This spreadsheet's UUID, read from the auto-save/intermediate YAML's
+    # _ui_state block. nil when no identity file or no UUID is available;
+    # callers treat that as "no runtime state wiring".
+    private def spreadsheet_uuid : String?
+      identity_file = @intermediate_file || @source_file
+      return if identity_file.nil? || identity_file.empty?
+      return unless File.exists?(identity_file)
+
+      root = YAML.parse(File.read(identity_file)).as_h?
+      return unless root
+
+      ui_state = root["_ui_state"]?.try(&.as_h?)
+      return unless ui_state
+
+      ui_state["spreadsheet_uuid"]?.try(&.as_s?)
+    rescue YAML::ParseException | IO::Error
+      nil
     end
 
     def save_to_yaml : Nil
@@ -932,6 +945,14 @@ module Sheety
         # This is the single source of truth for all cell data
         initial_values = populate_generator_from_internal_format(internal_format, generator)
 
+        # Carry this spreadsheet's identity and the current cursor into the
+        # new binary, so it derives state/cache/save locations at runtime
+        # like any other sheety-built binary (and restores this position).
+        if uuid = spreadsheet_uuid
+          generator.spreadsheet_uuid = uuid
+        end
+        generator.initial_position = {sheet: @sheets[@current_sheet_idx], cell: current_cell_ref}
+
         # Generate the source code (interactive for TUI binary)
         temp_source = File.join(DataDir.path, "tmp", "#{File.basename(source_file, ext)}.cr")
         chunk_prefix = File.basename(temp_source, File.extname(temp_source))
@@ -967,6 +988,14 @@ module Sheety
 
         # Populate formulas and initial values from internal_format
         initial_values = populate_generator_from_internal_format(internal_format, generator)
+
+        # Carry this spreadsheet's identity and the current cursor into the
+        # generated program, so it derives state/cache/save locations at
+        # runtime like any other sheety-built program.
+        if uuid = spreadsheet_uuid
+          generator.spreadsheet_uuid = uuid
+        end
+        generator.initial_position = {sheet: @sheets[@current_sheet_idx], cell: current_cell_ref}
 
         # Generate the source code (non-interactive for standalone code generation)
         chunk_prefix = File.basename(source_file, File.extname(source_file))
@@ -1068,7 +1097,7 @@ module Sheety
       current_sheet = @sheets[@current_sheet_idx]
       ui_metadata = {} of YAML::Any => YAML::Any
       ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(current_sheet)
-      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(CellRefs.num_to_col(@active_col + 1) + (@active_row + 1).to_s)
+      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(current_cell_ref)
       yaml_any_structure[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
 
       yaml_any_structure
@@ -1133,7 +1162,7 @@ module Sheety
       # Add UI state
       ui_metadata = {} of YAML::Any => YAML::Any
       ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(@sheets[@current_sheet_idx])
-      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(CellRefs.num_to_col(@active_col + 1) + (@active_row + 1).to_s)
+      ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(current_cell_ref)
 
       # Preserve spreadsheet_uuid if it exists
       begin

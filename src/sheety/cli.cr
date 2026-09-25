@@ -139,6 +139,11 @@ module Sheety
       puts "Building #{build_paths.binary_name}..."
       binary_name = Pipeline.build(data, spreadsheet_uuid, file_hash,
         source_file: source_file,
+        # Saves go back to the file the user launched (for .xlsx inputs,
+        # source_file is a temp YAML; without this the TUI would default
+        # its save target to that temp file). Absolute so the generated
+        # exists/writable guard holds from any working directory.
+        original_filename: File.expand_path(filename),
         ui_position: Spreadsheet.read_ui_position(source_file),
       )
 
