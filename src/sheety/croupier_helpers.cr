@@ -12,9 +12,17 @@ module Sheety
       Croupier::TaskManager.get(cell_ref) || ""
     end
 
+    # The k/v store key for a cell. Sheet-less spreadsheets (the
+    # add_formula path without a sheet) key cells bare ("A1"); sheeted
+    # ones prefix the sheet ("Sheet1!A1"), exactly like the bare
+    # fetch_cell calls the generator emits for sheet-less CellRefs.
+    private def cell_key(sheet : String?, col : String, row : Int32) : String
+      sheet ? "#{sheet}!#{col}#{row}" : "#{col}#{row}"
+    end
+
     # Fetch a range of cells (e.g., "Sheet1!A1:A100") as a flat,
     # row-major array of values.
-    def fetch_cell_range(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(String)
+    def fetch_cell_range(sheet : String?, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(String)
       start_col_num = CellRefs.col_to_num(start_col)
       end_col_num = CellRefs.col_to_num(end_col)
 
@@ -23,7 +31,7 @@ module Sheety
       (start_row..end_row).each do |row|
         (start_col_num..end_col_num).each do |col|
           col_str = CellRefs.num_to_col(col)
-          result << fetch_cell(sheet + "!" + col_str + row.to_s)
+          result << fetch_cell(cell_key(sheet, col_str, row))
         end
       end
       result
@@ -31,9 +39,9 @@ module Sheety
 
     # Fetch a range of cells as a 2D table (one Array of values per row),
     # for functions that take a table argument (VLOOKUP, HLOOKUP, INDEX).
-    # Takes the same arguments as fetch_cell_range so the generator's range
-    # scanning treats both helpers uniformly.
-    def fetch_cell_range_2d(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(Array(String))
+    # Takes the same arguments as fetch_cell_range so the generator treats
+    # both helpers uniformly.
+    def fetch_cell_range_2d(sheet : String?, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(Array(String))
       start_col_num = CellRefs.col_to_num(start_col)
       end_col_num = CellRefs.col_to_num(end_col)
 
@@ -42,7 +50,7 @@ module Sheety
         current_row = [] of String
         (start_col_num..end_col_num).each do |col|
           col_str = CellRefs.num_to_col(col)
-          current_row << fetch_cell(sheet + "!" + col_str + row.to_s)
+          current_row << fetch_cell(cell_key(sheet, col_str, row))
         end
         result << current_row
       end
@@ -50,7 +58,7 @@ module Sheety
     end
 
     # Generate k/v store input keys for a range
-    def range_inputs(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(String)
+    def range_inputs(sheet : String?, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Array(String)
       start_col_num = CellRefs.col_to_num(start_col)
       end_col_num = CellRefs.col_to_num(end_col)
 
@@ -59,7 +67,7 @@ module Sheety
       (start_row..end_row).each do |row|
         (start_col_num..end_col_num).each do |col|
           col_str = CellRefs.num_to_col(col)
-          result << "kv://" + sheet + "!" + col_str + row.to_s
+          result << "kv://" + cell_key(sheet, col_str, row)
         end
       end
       result
@@ -157,7 +165,7 @@ module Sheety
 
     # Initialize all cells in a range to empty strings
     # This is needed because Croupier requires all input keys to exist
-    def initialize_range(sheet : String, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Nil
+    def initialize_range(sheet : String?, start_col : String, start_row : Int32, end_col : String, end_row : Int32) : Nil
       start_col_num = CellRefs.col_to_num(start_col)
       end_col_num = CellRefs.col_to_num(end_col)
 
@@ -165,7 +173,7 @@ module Sheety
       (start_row..end_row).each do |row|
         (start_col_num..end_col_num).each do |col|
           col_str = CellRefs.num_to_col(col)
-          Croupier::TaskManager.set(sheet + "!" + col_str + row.to_s, "")
+          Croupier::TaskManager.set(cell_key(sheet, col_str, row), "")
         end
       end
     end

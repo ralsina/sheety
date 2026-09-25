@@ -626,7 +626,9 @@ puts ""
                     elsif dependencies.empty?
                       "[] of String"
                     else
-                      "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "] of String"
+                      # Inspect so sheet names that need escaping (a quote, a
+                      # backslash) stay valid Crystal literals.
+                      "[" + dependencies.map { |dep| %(kv://#{dep}).inspect }.join(", ") + "] of String"
                     end
 
       # Body: if this formula shares a calc_shape_N helper, call it with the

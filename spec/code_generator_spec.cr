@@ -970,6 +970,28 @@ describe Sheety::CroupierGenerator do
       source.should contain(%(fetch_cell_range(#{sheet_literal}, "A", 1, "A", 5)))
       source.should contain(%(initialize_range(#{sheet_literal}, "A", 1, "A", 5)))
     end
+
+    it "emits consistent nil-sheet wiring for sheet-less range formulas" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("C1", "=SUM(A1:A5)")
+      source = gen.generate_source.entrypoint
+
+      # Sheet-less spreadsheets key cells bare; the range helpers accept a
+      # nil sheet for that, so initialize, fetch and input wiring all
+      # reference the same bare keys.
+      source.should contain(%(initialize_range(nil, "A", 1, "A", 5)))
+      source.should contain(%(fetch_cell_range(nil, "A", 1, "A", 5)))
+      source.should contain(%(range_inputs(nil, "A", 1, "A", 5)))
+    end
+
+    it "escapes dependency input keys for sheets whose names need escaping" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("B1", "=A1*2", %(Q"1))
+      source = gen.generate_source.entrypoint
+
+      escaped_key = %(kv://Q"1!A1).inspect
+      source.should contain(%([#{escaped_key}] of String))
+    end
   end
 end
 
