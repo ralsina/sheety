@@ -20,13 +20,21 @@ jobs:
         run: crystal tool format --check src spec
       - name: Build
         run: shards build
-      - name: "Flake hunt A/B: piped vs redirected (TEMPORARY, remove me)"
+      - name: "Flake hunt: pipe vs file on the same VM (TEMPORARY, remove me)"
         continue-on-error: true
         run: |
-          echo "--- variant 1: bare (stdout to runner pipe)"
-          crystal spec --order=random > /dev/null 2>&1 && echo "V1(bare,to /dev/null): PASS" || echo "V1(bare,to /dev/null): FAIL"
-          echo "--- variant 2: redirect to file then cat"
-          crystal spec --order=random > /tmp/ab.log 2>&1 && echo "V2(to file): PASS" || echo "V2(to file): FAIL"
+          for i in 1 2 3 4 5 6; do
+            crystal spec --order=random 2>&1 | cat > /dev/null
+            rc=${PIPESTATUS[0]}
+            if [ $rc -eq 0 ]; then echo "PIPE run $i: PASS"; else echo "PIPE run $i: FAIL"; fi
+          done
+          for i in 1 2 3; do
+            if crystal spec --order=random > /dev/null 2>&1; then
+              echo "FILE run $i: PASS"
+            else
+              echo "FILE run $i: FAIL"
+            fi
+          done
       - name: Specs
         run: crystal spec --order=random
 
