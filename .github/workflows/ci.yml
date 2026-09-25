@@ -20,18 +20,13 @@ jobs:
         run: crystal tool format --check src spec
       - name: Build
         run: shards build
-      - name: "Flake hunt: 6 non-verbose runs before anything else (TEMPORARY, remove me)"
+      - name: "Flake hunt A/B: piped vs redirected (TEMPORARY, remove me)"
+        continue-on-error: true
         run: |
-          fails=0
-          for i in $(seq 1 6); do
-            if ! crystal spec --order=random > /tmp/nv_$i.log 2>&1; then
-              fails=$((fails+1))
-              echo "=== non-verbose iteration $i FAILED ==="
-              tail -60 /tmp/nv_$i.log
-            fi
-          done
-          echo "non-verbose loop: $fails failures out of 6 (first iteration was this job's first spec execution)"
-          test $fails -eq 0
+          echo "--- variant 1: bare (stdout to runner pipe)"
+          crystal spec --order=random > /dev/null 2>&1 && echo "V1(bare,to /dev/null): PASS" || echo "V1(bare,to /dev/null): FAIL"
+          echo "--- variant 2: redirect to file then cat"
+          crystal spec --order=random > /tmp/ab.log 2>&1 && echo "V2(to file): PASS" || echo "V2(to file): FAIL"
       - name: Specs
         run: crystal spec --order=random
 
