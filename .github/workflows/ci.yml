@@ -22,7 +22,7 @@ jobs:
         run: shards build
       - name: Specs
         run: crystal spec --order=random
-      - name: Flake hunt: roundtrip spec in a loop (TEMPORARY, remove me)
+      - name: "Flake hunt: roundtrip spec in a loop (TEMPORARY, remove me)"
         if: always()
         run: |
           fails=0
