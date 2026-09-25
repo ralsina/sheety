@@ -20,21 +20,6 @@ jobs:
         run: crystal tool format --check src spec
       - name: Build
         run: shards build
-      - name: "Flake hunt: pipe vs file on the same VM (TEMPORARY, remove me)"
-        continue-on-error: true
-        run: |
-          for i in 1 2 3 4 5 6; do
-            crystal spec --order=random 2>&1 | cat > /dev/null
-            rc=${PIPESTATUS[0]}
-            if [ $rc -eq 0 ]; then echo "PIPE run $i: PASS"; else echo "PIPE run $i: FAIL"; fi
-          done
-          for i in 1 2 3; do
-            if crystal spec --order=random > /dev/null 2>&1; then
-              echo "FILE run $i: PASS"
-            else
-              echo "FILE run $i: FAIL"
-            fi
-          done
       - name: Specs
         run: crystal spec --order=random
 
