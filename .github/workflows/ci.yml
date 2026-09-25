@@ -20,22 +20,20 @@ jobs:
         run: crystal tool format --check src spec
       - name: Build
         run: shards build
-      - name: Specs
-        run: crystal spec --order=random
-      - name: "Flake hunt: cold-cache full suite, verbose (TEMPORARY, remove me)"
-        if: always()
+      - name: "Flake hunt: 6 non-verbose runs before anything else (TEMPORARY, remove me)"
         run: |
           fails=0
-          for i in $(seq 1 8); do
-            rm -rf ~/.cache/crystal
-            if ! crystal spec --order=random --verbose > /tmp/cold_$i.log 2>&1; then
+          for i in $(seq 1 6); do
+            if ! crystal spec --order=random > /tmp/nv_$i.log 2>&1; then
               fails=$((fails+1))
-              echo "=== cold iteration $i FAILED ==="
-              cat /tmp/cold_$i.log
+              echo "=== non-verbose iteration $i FAILED ==="
+              tail -60 /tmp/nv_$i.log
             fi
           done
-          echo "cold loop: $fails failures out of 8"
+          echo "non-verbose loop: $fails failures out of 6 (first iteration was this job's first spec execution)"
           test $fails -eq 0
+      - name: Specs
+        run: crystal spec --order=random
 
   lint:
     name: Ameba
