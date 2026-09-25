@@ -1054,6 +1054,68 @@ describe Sheety::CroupierGenerator do
   end
 end
 
+describe Sheety::CroupierGenerator do
+  describe "generated-binary portability" do
+    it "derives state and cache locations at runtime from the uuid" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("C1", "=SUM(A1:A5)", "Sheet1")
+      gen.spreadsheet_uuid = "abc123"
+      source = gen.generate_source.entrypoint
+
+      source.should contain(%(require "../src/sheety/data_dir"))
+      source.should contain("state_dir = File.join(Sheety::DataDir.path, \"tmp\")")
+      source.should contain("Croupier::TaskManager.state_file = File.join(state_dir, \"abc123.croupier\")")
+      source.should contain("Croupier::TaskManager.use_persistent_store(File.join(state_dir, \"abc123.kv\"))")
+      # No build-machine path is baked into the state configuration.
+      source.should_not contain("TaskManager.state_file = \"/")
+      source.should_not contain("use_persistent_store(\"/")
+    end
+
+    it "emits no state configuration without a uuid" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("C1", "=SUM(A1:A5)", "Sheet1")
+      source = gen.generate_source.entrypoint
+
+      source.should_not contain("Croupier::TaskManager.state_file =")
+      source.should_not contain("use_persistent_store")
+    end
+
+    it "resolves the intermediate auto-save at runtime and guards the original file" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("A1", "=1", "Sheet1")
+      gen.spreadsheet_uuid = "abc123"
+      source = gen.generate_source(Hash(String, BigFloat | String | Bool).new, true, "/build/machine/sheet.yaml").entrypoint
+
+      source.should contain("tui.intermediate_file = File.join(Sheety::DataDir.path, \"abc123.yaml\")")
+      source.should contain("original_source = \"/build/machine/sheet.yaml\"")
+      source.should contain("if File.exists?(original_source) && File.writable?(original_source)")
+      source.should contain("  tui.source_file = original_source")
+      source.should contain("  tui.original_source_file = original_source")
+    end
+
+    it "embeds the saved cursor position instead of reading the source at startup" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("A1", "=1", "Sheet1")
+      gen.spreadsheet_uuid = "abc123"
+      gen.initial_position = {sheet: "Sheet2", cell: "B3"}
+      source = gen.generate_source(Hash(String, BigFloat | String | Bool).new, true, "/build/machine/sheet.yaml").entrypoint
+
+      source.should contain(%(tui.set_initial_position("Sheet2", "B3")))
+      source.should_not contain("YAML.parse(File.read")
+    end
+
+    it "wires no save target when neither uuid nor source file is known" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("A1", "=1", "Sheet1")
+      source = gen.generate_source(Hash(String, BigFloat | String | Bool).new, true).entrypoint
+
+      source.should_not contain("tui.source_file =")
+      source.should_not contain("tui.original_source_file =")
+      source.should_not contain("tui.intermediate_file =")
+    end
+  end
+end
+
 describe Sheety::CodeGenerator do
   describe "range normalization" do
     it "strips $ anchors from concrete ranges" do

@@ -23,8 +23,6 @@ module Sheety
     record BuildPaths,
       output_cr : String,
       binary_name : String,
-      croupier_state : String,
-      kv_store : String,
       intermediate_file : String
 
     def self.paths(file_hash : String, spreadsheet_uuid : String) : BuildPaths
@@ -32,8 +30,6 @@ module Sheety
       BuildPaths.new(
         output_cr: File.join(DataDir.path, "tmp", "#{hash_short}.cr"),
         binary_name: File.join(DataDir.path, "tmp", "#{hash_short}"),
-        croupier_state: File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.croupier"),
-        kv_store: File.join(DataDir.path, "tmp", "#{spreadsheet_uuid}.kv"),
         intermediate_file: intermediate_file(spreadsheet_uuid),
       )
     end
@@ -47,25 +43,25 @@ module Sheety
     # Generate the Crystal source for `data` and compile it. Returns the
     # path of the fresh binary.
     #
-    # - `source_file` is the YAML the generated TUI restores UI state from
-    #   (usually the intermediate file).
-    # - `tui_intermediate_file` is where the generated TUI auto-saves formula
-    #   edits; nil means the generated program uses `source_file` for that.
+    # - `source_file` is the YAML the sheet was built from; it becomes the
+    #   generated TUI's default save target (honored only while the file
+    #   still exists when the binary runs).
     # - `original_filename` is the user-facing file saves go to.
+    # - `ui_position` is the saved cursor position to embed as the TUI's
+    #   initial position.
     def self.build(data : Spreadsheet::WorkbookData, spreadsheet_uuid : String, file_hash : String,
-                   source_file : String, tui_intermediate_file : String? = nil,
-                   original_filename : String? = nil) : String
+                   source_file : String, original_filename : String? = nil,
+                   ui_position : {sheet: String, cell: String}? = nil) : String
       build_paths = paths(file_hash, spreadsheet_uuid)
 
       generator = CroupierGenerator.new
-      generator.state_file_path = build_paths.croupier_state
-      generator.kv_store_path = build_paths.kv_store
       generator.spreadsheet_uuid = spreadsheet_uuid
       generator.original_filename = original_filename if original_filename
+      generator.initial_position = ui_position if ui_position
 
       initial_values = Spreadsheet.populate_generator(data, generator)
       generated = generator.generate_source(
-        initial_values, true, source_file, tui_intermediate_file,
+        initial_values, true, source_file,
         File.basename(build_paths.output_cr, ".cr"),
       )
 

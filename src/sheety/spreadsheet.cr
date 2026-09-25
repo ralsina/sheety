@@ -51,6 +51,28 @@ module Sheety
       read_with_metadata(file_path).data
     end
 
+    # Read the saved cursor position (active_sheet/active_cell) from a YAML
+    # spreadsheet's _ui_state block. Returns nil when the file or the block
+    # is missing, so callers can treat "no saved position" as the default.
+    def self.read_ui_position(file_path : String) : {sheet: String, cell: String}?
+      return unless {".yaml", ".yml"}.includes?(File.extname(file_path).downcase)
+      return unless File.exists?(file_path)
+
+      root = YAML.parse(File.read(file_path)).as_h?
+      return unless root
+
+      ui_state = root["_ui_state"]?.try(&.as_h?)
+      return unless ui_state
+
+      sheet = ui_state["active_sheet"]?.try(&.as_s?)
+      cell = ui_state["active_cell"]?.try(&.as_s?)
+      return unless sheet && cell
+
+      {sheet: sheet, cell: cell}
+    rescue YAML::ParseException | IO::Error
+      nil
+    end
+
     # Create an empty spreadsheet file
     def self.create_empty(file_path : String) : Nil
       ext = File.extname(file_path).downcase
@@ -130,7 +152,7 @@ module Sheety
     end
 
     # Write the in-memory representation to a file
-    def self.write(data : WorkbookData, file_path : String, source_file : String? = nil) : Nil
+    def self.write(data : WorkbookData, file_path : String, source_file : String? = nil, spreadsheet_uuid : String? = nil) : Nil
       ext = File.extname(file_path).downcase
 
       case ext
@@ -139,9 +161,9 @@ module Sheety
       when ".xlsx"
         write_excel(data, file_path)
       when ".cr"
-        write_crystal_source(data, file_path, source_file)
+        write_crystal_source(data, file_path, source_file, spreadsheet_uuid)
       when ".sheety"
-        write_binary(data, file_path, source_file)
+        write_binary(data, file_path, source_file, spreadsheet_uuid)
       else
         raise "Unsupported output format: #{ext}"
       end
@@ -149,8 +171,10 @@ module Sheety
 
     # Convert between any two formats
     def self.convert(from_file : String, to_file : String) : Nil
-      data = read(from_file)
-      write(data, to_file, from_file)
+      # Keep the UUID so compiled output derives its state/save locations
+      # from it at runtime instead of baking in this machine's paths.
+      spreadsheet_file = read_with_metadata(from_file)
+      write(spreadsheet_file.data, to_file, from_file, spreadsheet_file.uuid)
       puts "Converted: #{from_file} -> #{to_file}"
     end
 
@@ -295,13 +319,20 @@ module Sheety
     end
 
     # Write Crystal source code format
-    private def self.write_crystal_source(data : WorkbookData, file_path : String, source_file : String?) : Nil
+    private def self.write_crystal_source(data : WorkbookData, file_path : String, source_file : String?, spreadsheet_uuid : String?) : Nil
       generator = CroupierGenerator.new
       initial_values = populate_generator(data, generator)
 
+      # UUID and saved cursor position keep the compiled output portable:
+      # locations are derived at runtime instead of baked in.
+      generator.spreadsheet_uuid = spreadsheet_uuid if spreadsheet_uuid
+      if ui_position = read_ui_position(source_file || file_path)
+        generator.initial_position = ui_position
+      end
+
       # Generate source code (entrypoint + optional chunk files for large sheets)
       chunk_prefix = File.basename(file_path, File.extname(file_path))
-      generated = generator.generate_source(initial_values, true, source_file || file_path, nil, chunk_prefix)
+      generated = generator.generate_source(initial_values, true, source_file || file_path, chunk_prefix)
 
       if generated.entrypoint.empty?
         raise "Failed to generate source code"
@@ -324,15 +355,23 @@ module Sheety
     end
 
     # Write compiled binary format
-    private def self.write_binary(data : WorkbookData, file_path : String, source_file : String?) : Nil
+    private def self.write_binary(data : WorkbookData, file_path : String, source_file : String?, spreadsheet_uuid : String?) : Nil
       generator = CroupierGenerator.new
       initial_values = populate_generator(data, generator)
+
+      # UUID and saved cursor position keep the compiled binary portable:
+      # state, cache and save locations are derived at runtime instead of
+      # baked in.
+      generator.spreadsheet_uuid = spreadsheet_uuid if spreadsheet_uuid
+      if ui_position = read_ui_position(source_file || file_path)
+        generator.initial_position = ui_position
+      end
 
       # Generate source code (entrypoint + optional chunk files for large sheets)
       source_file_for_binary = source_file || file_path
       temp_source = File.join(DataDir.path, "tmp", "#{File.basename(file_path, File.extname(file_path))}.cr")
       chunk_prefix = File.basename(temp_source, File.extname(temp_source))
-      generated = generator.generate_source(initial_values, true, source_file_for_binary, nil, chunk_prefix)
+      generated = generator.generate_source(initial_values, true, source_file_for_binary, chunk_prefix)
 
       if generated.entrypoint.empty?
         raise "Failed to generate source code"

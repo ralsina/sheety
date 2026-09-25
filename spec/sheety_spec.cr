@@ -149,3 +149,44 @@ describe Sheety do
     end
   end
 end
+
+describe Sheety::Spreadsheet do
+  describe ".read_ui_position" do
+    it "reads the saved active sheet and cell" do
+      temp_dir = File.join("/tmp", "sheety_ui_position_spec")
+      Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
+      yaml_file = File.join(temp_dir, "sheet.yaml")
+      begin
+        File.write(yaml_file, <<-YAML
+          Sheet1:
+            A1:
+              value: 1
+          _ui_state:
+            active_sheet: Sheet2
+            active_cell: B3
+          YAML
+        )
+        Sheety::Spreadsheet.read_ui_position(yaml_file).should eq({sheet: "Sheet2", cell: "B3"})
+      ensure
+        FileUtils.rm_rf(temp_dir)
+      end
+    end
+
+    it "returns nil without an _ui_state block" do
+      temp_dir = File.join("/tmp", "sheety_ui_position_spec")
+      Dir.mkdir_p(temp_dir) unless Dir.exists?(temp_dir)
+      yaml_file = File.join(temp_dir, "sheet.yaml")
+      begin
+        File.write(yaml_file, "Sheet1:\n  A1:\n    value: 1\n")
+        Sheety::Spreadsheet.read_ui_position(yaml_file).should be_nil
+      ensure
+        FileUtils.rm_rf(temp_dir)
+      end
+    end
+
+    it "returns nil for missing files and non-yaml extensions" do
+      Sheety::Spreadsheet.read_ui_position("/tmp/does-not-exist-anywhere.yaml").should be_nil
+      Sheety::Spreadsheet.read_ui_position("/tmp/whatever.xlsx").should be_nil
+    end
+  end
+end
