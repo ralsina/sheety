@@ -1,6 +1,7 @@
 require "./spec_helper"
 require "../src/sheety"
 require "yaml"
+require "compress/zip"
 
 describe "Excel Roundtrip" do
   it "preserves data when exporting and importing back" do
@@ -96,31 +97,48 @@ describe "Excel Roundtrip" do
       # Check sheet count
       original_sheets.size.should eq reimported_sheets.size
 
-      # Verify each sheet's data matches
-      original_sheets.each do |sheet_name, original_sheet|
-        reimported_sheet = reimported_sheets[sheet_name]
+      # Verify each sheet's data matches (compare cell-by-cell). On mismatch,
+      # dump the artifacts' state before the ensure block deletes them: this
+      # spec has flaked in CI once (reimported sheet missing its first cell)
+      # and the evidence went away with the temp files.
+      begin
+        original_sheets.each do |sheet_name, original_sheet|
+          reimported_sheet = reimported_sheets[sheet_name]
 
-        original_sheet.as_h.each do |cell_ref, original_cell|
-          reimported_cell = reimported_sheet.as_h[cell_ref]
+          original_sheet.as_h.each do |cell_ref, original_cell|
+            reimported_cell = reimported_sheet.as_h[cell_ref]
 
-          # Compare values
-          original_value = original_cell.as_h["value"]?
-          reimported_value = reimported_cell.as_h["value"]?
+            # Compare values
+            original_value = original_cell.as_h["value"]?
+            reimported_value = reimported_cell.as_h["value"]?
 
-          if original_value && reimported_value
-            # Compare as strings for simplicity
-            normalize_roundtrip_value(original_value).should eq(normalize_roundtrip_value(reimported_value))
-          end
+            if original_value && reimported_value
+              # Compare as strings for simplicity
+              normalize_roundtrip_value(original_value).should eq(normalize_roundtrip_value(reimported_value))
+            end
 
-          # Compare formulas
-          original_formula = original_cell.as_h["formula"]?
-          reimported_formula = reimported_cell.as_h["formula"]?
+            # Compare formulas
+            original_formula = original_cell.as_h["formula"]?
+            reimported_formula = reimported_cell.as_h["formula"]?
 
-          if original_formula && reimported_formula
-            # Both should have '=' prefix or both not
-            original_formula.to_s.should eq(reimported_formula.to_s)
+            if original_formula && reimported_formula
+              # Both should have '=' prefix or both not
+              original_formula.to_s.should eq(reimported_formula.to_s)
+            end
           end
         end
+      rescue ex : KeyError
+        STDERR.puts "Roundtrip forensics (xlsx was #{xlsx_file}):"
+        STDERR.puts "reimported yaml:\n#{reimported_yaml_content}"
+        if File.exists?(xlsx_file)
+          Compress::Zip::File.open(xlsx_file) do |zip|
+            zip.entries.each do |entry|
+              content = entry.open(&.gets_to_end)
+              STDERR.puts "zip entry #{entry.filename} (#{content.size} bytes): #{content.lines.first?}"
+            end
+          end
+        end
+        raise ex
       end
 
       # Type fidelity: the exporter used to turn numeric-looking strings
