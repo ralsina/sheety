@@ -22,18 +22,18 @@ jobs:
         run: shards build
       - name: Specs
         run: crystal spec --order=random
-      - name: "Flake hunt: roundtrip spec in a loop (TEMPORARY, remove me)"
+      - name: "Flake hunt: full suite in a loop, verbose (TEMPORARY, remove me)"
         if: always()
         run: |
           fails=0
-          for i in $(seq 1 60); do
-            if ! crystal spec spec/roundtrip_spec.cr --order=random > /tmp/rt_$i.log 2>&1; then
+          for i in $(seq 1 12); do
+            if ! crystal spec --order=random --verbose > /tmp/full_$i.log 2>&1; then
               fails=$((fails+1))
-              echo "=== iteration $i FAILED ==="
-              cat /tmp/rt_$i.log
+              echo "=== full-suite iteration $i FAILED ==="
+              cat /tmp/full_$i.log
             fi
           done
-          echo "roundtrip loop: $fails failures out of 60"
+          echo "full-suite loop: $fails failures out of 12"
           test $fails -eq 0
 
   lint:
