@@ -1147,6 +1147,7 @@ describe Sheety::CroupierGenerator do
       gen.spreadsheet_uuid = "abc123"
       source = gen.generate_source(Hash(String, BigFloat | String | Bool).new, true, "/build/machine/sheet.yaml").entrypoint
 
+      source.should contain(%(tui.spreadsheet_uuid = "abc123"))
       source.should contain("tui.intermediate_file = File.join(Sheety::DataDir.path, \"abc123.yaml\")")
       source.should contain("original_source = \"/build/machine/sheet.yaml\"")
       source.should contain("if File.exists?(original_source) && File.writable?(original_source)")
@@ -1172,6 +1173,7 @@ describe Sheety::CroupierGenerator do
 
       source.should_not contain("tui.source_file =")
       source.should_not contain("tui.original_source_file =")
+      source.should_not contain("tui.spreadsheet_uuid =")
       source.should_not contain("tui.intermediate_file =")
     end
   end

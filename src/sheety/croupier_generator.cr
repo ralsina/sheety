@@ -702,6 +702,7 @@ puts ""
       file_setup_code = String.build do |io|
         if uuid = @spreadsheet_uuid
           io << "# Intermediate file for formula-edit auto-saves (resolved at runtime)\n"
+          io << %(tui.spreadsheet_uuid = #{uuid.inspect}\n)
           io << %(tui.intermediate_file = File.join(Sheety::DataDir.path, #{(uuid + ".yaml").inspect})\n)
           io << "\n"
         end
