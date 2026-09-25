@@ -25,10 +25,22 @@ module Sheety
       begin
         sheets = Array(Importers::ExcelSheet).new
 
-        book.sheets.each_with_index do |xlsx_sheet, index|
-          # Extract values using xlsx-parser, with the XML cell types so
-          # integer-valued numeric cells can be told apart from text
-          values = extract_values_from_sheet(xlsx_sheet, Sheety::FormulaExtractor.extract_cell_types(filename, index))
+        # Sheet names come from workbook.xml; cell values are read with eager
+        # DOM parsing below instead of XlsxParser::Sheet#rows. The shard
+        # walks each sheet with a lazy XML::Reader spread across many
+        # allocations, and on loaded CI runners it intermittently yielded
+        # sheets with no values at all (the roundtrip spec flake; the zip on
+        # disk was verifiably complete). One XML.parse call has no cross-call
+        # reader state to lose.
+        workbook = XML.parse(book.zip["xl/workbook.xml"].open(&.gets_to_end))
+        sheet_nodes = workbook.xpath_nodes("//*[name()='sheet']")
+
+        sheet_nodes.each_with_index do |sheet_node, index|
+          sheet_name = sheet_node["name"]? || "Sheet#{index + 1}"
+
+          sheet_path = Sheety::FormulaExtractor.resolve_sheet_path(book.zip, index)
+          sheet_xml = sheet_path ? book.zip[sheet_path]?.try(&.open(&.gets_to_end)) : nil
+          values = extract_values_from_xml(sheet_xml, book)
 
           # Extract formulas from XML
           formulas = Sheety::FormulaExtractor.extract(filename, index)
@@ -36,7 +48,7 @@ module Sheety
           # Merge into ExcelCell structures
           cells = merge_values_and_formulas(values, formulas)
 
-          sheets << Importers::ExcelSheet.new(xlsx_sheet.name, cells)
+          sheets << Importers::ExcelSheet.new(sheet_name, cells)
         end
 
         Importers::ExcelWorkbook.new(sheets)
@@ -74,23 +86,86 @@ module Sheety
       result
     end
 
-    # Extract cell values from xlsx-parser sheet
-    private def self.extract_values_from_sheet(xlsx_sheet : XlsxParser::Sheet, cell_types : Hash(String, String)) : Hash(String, Functions::CellValue)
+    # Style categories that turn an otherwise-numeric cell into a date/time,
+    # mirroring XlsxParser::Styles::Converter::DATE_TYPES.
+    DATE_TYPES = {:date, :time, :date_time}
+
+    # Extract cell values (and the XML "t" type per cell, for
+    # numeric-looking text promotion in convert_value) from one sheet's XML.
+    #
+    # Eagerly DOM-parses the document rather than delegating to
+    # XlsxParser::Sheet#rows; see parse_xlsx for why the lazy reader is
+    # avoided. Value typing mirrors XlsxParser::Styles::Converter so the
+    # values fed into convert_value keep the exact types the shard produced.
+    private def self.extract_values_from_xml(sheet_xml : String?, book : XlsxParser::Book) : Hash(String, Functions::CellValue)
       values = {} of String => Functions::CellValue
+      return values unless sheet_xml
 
-      # xlsx-parser provides rows as Hash(String, Type) where the key is cell reference (A1, B1, etc.)
-      # and the value is the cell value
-      xlsx_sheet.rows.each do |row|
-        row.each do |cell_ref, cell_value|
-          # Skip nil values
-          next if cell_value.nil?
+      doc = XML.parse(sheet_xml)
+      shared_strings = book.shared_strings
+      base_time = book.base_time
 
-          # Convert the value to Sheety's CellValue type
-          values[cell_ref] = convert_value(cell_value, cell_types[cell_ref]?)
-        end
+      doc.xpath_nodes("//*[local-name()='row']/*[local-name()='c']").each do |cell_node|
+        cell_ref = cell_node.attributes["r"]?.try(&.content)
+        next unless cell_ref
+
+        cell_type = cell_node.attributes["t"]?.try(&.content)
+
+        # Only cells carrying a <v> child hold a (cached) value; like the
+        # shard, cells with just a formula or inline content yield nothing.
+        v_nodes = cell_node.xpath_nodes("./*[local-name()='v']")
+        next if v_nodes.empty?
+
+        style_index = cell_node.attributes["s"]?.try(&.content.try(&.to_i?))
+        style = style_index ? book.style_types[style_index]? : nil
+
+        raw = apply_cell_style(v_nodes[v_nodes.size - 1].content, cell_type, style, shared_strings, base_time)
+        values[cell_ref] = convert_value(raw, cell_type)
       end
 
       values
+    end
+
+    # Turn a cell's raw <v> text into the type the XML "t" attribute (or the
+    # cell style, for date formats) calls for. Replicates
+    # XlsxParser::Styles::Converter#call so imports keep producing the same
+    # Int32/Int64/Float64/Bool/String/Time values the shard did.
+    private def self.apply_cell_style(raw : String, cell_type : String?, style : Symbol?, shared_strings : Array(String), base_time : Time) : Bool | Float64 | Int32 | Int64 | String | Time
+      resolved_type = if cell_type.nil? || (cell_type == "n" && DATE_TYPES.includes?(style))
+                        style
+                      else
+                        cell_type
+                      end
+
+      case resolved_type
+      when "s"
+        shared_strings[raw.to_i]
+      when "b"
+        raw.to_i == 1
+      when "n", :float, :percentage
+        number = raw.to_f?
+        number && number.to_s == raw ? number : raw
+      when :fixnum
+        int32 = raw.to_i32?
+        if int32 && int32.to_s == raw
+          int32
+        else
+          int64 = raw.to_i64?
+          int64 && int64.to_s == raw ? int64 : raw
+        end
+      when :time, :date, :date_time
+        base_time + raw.to_f.days
+      when :string
+        raw
+      else
+        int32 = raw.to_i32?
+        if int32 && int32.to_s == raw
+          int32
+        else
+          number = raw.to_f?
+          number && number.to_s == raw ? number : raw
+        end
+      end
     end
 
     # Merge values and formulas into ExcelCell objects

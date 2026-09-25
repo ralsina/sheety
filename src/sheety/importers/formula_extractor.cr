@@ -28,37 +28,9 @@ module Sheety
       formulas
     end
 
-    # Extract the XML cell type ("n"/absent = numeric, "s" = shared string,
-    # "b" = boolean, ...) per cell reference. Needed because xlsx-parser
-    # returns integer-valued numeric cells as strings, and only this
-    # attribute knows whether a "100" was a number or text.
-    def self.extract_cell_types(filename : String, sheet_index : Int32) : Hash(String, String)
-      types = {} of String => String
-
-      begin
-        Compress::Zip::File.open(filename) do |zip|
-          sheet_path = resolve_sheet_path(zip, sheet_index)
-
-          if sheet_path && zip[sheet_path]?
-            doc = XML.parse(zip[sheet_path].open(&.gets_to_end))
-            doc.xpath_nodes("//*[local-name()='c']").each do |cell_node|
-              if ref = cell_node["r"]?
-                types[ref] = cell_node["t"]? || "n"
-              end
-            end
-          end
-        end
-      rescue Exception
-        # Without type info the importer keeps whatever xlsx-parser produced.
-        types = {} of String => String
-      end
-
-      types
-    end
-
     # Resolves the actual worksheet XML path from workbook relationships.
     # This is necessary because worksheet files may not be named sheet1.xml, sheet2.xml, etc.
-    private def self.resolve_sheet_path(zip : Compress::Zip::File, sheet_index : Int32) : String?
+    def self.resolve_sheet_path(zip : Compress::Zip::File, sheet_index : Int32) : String?
       # Parse workbook.xml to get sheet IDs
       workbook = XML.parse(zip["xl/workbook.xml"].open(&.gets_to_end))
       sheets_nodes = workbook.xpath_nodes("//*[name()='sheet']")

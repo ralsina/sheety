@@ -100,7 +100,8 @@ module Sheety
     @save_callback : Proc(Nil)?
     @source_file : String?
     @intermediate_file : String?
-    @original_source_file : String? # Track the original file for saves
+    @original_source_file : String?   # Track the original file for saves
+    @spreadsheet_uuid : String? = nil # Identity baked into the generated binary
     @rebuilding : Bool = false
     @pending_exec : String? = nil
 
@@ -792,6 +793,10 @@ module Sheety
       @intermediate_file = intermediate_file
     end
 
+    def spreadsheet_uuid=(spreadsheet_uuid : String) : Nil
+      @spreadsheet_uuid = spreadsheet_uuid
+    end
+
     def original_source_file=(original_file : String) : Nil
       @original_source_file = original_file
     end
@@ -800,10 +805,13 @@ module Sheety
       initialize_grid
     end
 
-    # This spreadsheet's UUID, read from the auto-save/intermediate YAML's
-    # _ui_state block. nil when no identity file or no UUID is available;
-    # callers treat that as "no runtime state wiring".
+    # This spreadsheet's UUID. Generated binaries get it as a literal (set via
+    # spreadsheet_uuid=); older binaries without the literal recover it from
+    # the auto-save/intermediate YAML's _ui_state block. nil when no identity
+    # is available; callers treat that as "no runtime state wiring".
     private def spreadsheet_uuid : String?
+      return @spreadsheet_uuid if @spreadsheet_uuid
+
       identity_file = @intermediate_file || @source_file
       return if identity_file.nil? || identity_file.empty?
       return unless File.exists?(identity_file)
@@ -1164,17 +1172,11 @@ module Sheety
       ui_metadata[YAML::Any.new("active_sheet")] = YAML::Any.new(@sheets[@current_sheet_idx])
       ui_metadata[YAML::Any.new("active_cell")] = YAML::Any.new(current_cell_ref)
 
-      # Preserve spreadsheet_uuid if it exists
-      begin
-        if File.exists?(filename)
-          existing_content = File.read(filename)
-          existing_data = YAML.parse(existing_content)
-          if existing_data.as_h? && existing_data["_ui_state"]? && existing_data["_ui_state"]["spreadsheet_uuid"]?
-            ui_metadata[YAML::Any.new("spreadsheet_uuid")] = existing_data["_ui_state"]["spreadsheet_uuid"]
-          end
-        end
-      rescue
-        # Ignore errors
+      # Stamp this spreadsheet's identity into the file so the UUID survives
+      # the first rebuild on a moved binary (where the target file does not
+      # exist yet to preserve it from).
+      if uuid = spreadsheet_uuid
+        ui_metadata[YAML::Any.new("spreadsheet_uuid")] = YAML::Any.new(uuid)
       end
 
       yaml_structure[YAML::Any.new("_ui_state")] = YAML::Any.new(ui_metadata)
