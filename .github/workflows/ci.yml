@@ -22,18 +22,19 @@ jobs:
         run: shards build
       - name: Specs
         run: crystal spec --order=random
-      - name: "Flake hunt: full suite in a loop, verbose (TEMPORARY, remove me)"
+      - name: "Flake hunt: cold-cache full suite, verbose (TEMPORARY, remove me)"
         if: always()
         run: |
           fails=0
-          for i in $(seq 1 12); do
-            if ! crystal spec --order=random --verbose > /tmp/full_$i.log 2>&1; then
+          for i in $(seq 1 8); do
+            rm -rf ~/.cache/crystal
+            if ! crystal spec --order=random --verbose > /tmp/cold_$i.log 2>&1; then
               fails=$((fails+1))
-              echo "=== full-suite iteration $i FAILED ==="
-              cat /tmp/full_$i.log
+              echo "=== cold iteration $i FAILED ==="
+              cat /tmp/cold_$i.log
             fi
           done
-          echo "full-suite loop: $fails failures out of 12"
+          echo "cold loop: $fails failures out of 8"
           test $fails -eq 0
 
   lint:
