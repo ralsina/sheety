@@ -49,6 +49,7 @@ module Sheety
       ast : AST::Node?,
       calc_code : String,
       dependencies : Set(String),
+      ranges : Set(DependencyExtractor::RangeDependency),
       problem : String?
 
     @formulas : Hash(String, FormulaInfo)
@@ -139,7 +140,7 @@ module Sheety
         ast = parse_formula(formula)
         if ast.nil?
           problems << "#{info.key}: #{formula.inspect} could not be parsed; the cell will show #VALUE!"
-          plans << Plan.new(info, nil, "", Set(String).new, "unparseable formula")
+          plans << Plan.new(info, nil, "", Set(String).new, Set(DependencyExtractor::RangeDependency).new, "unparseable formula")
           next
         end
 
@@ -152,11 +153,11 @@ module Sheety
 
         begin
           calc_code = @generator.generate(ast, CodeGenerator::Context.new(info.sheet))
-          dependencies = @extractor.extract(ast, info.sheet)
-          plans << Plan.new(info, ast, calc_code, dependencies, nil)
+          extraction = @extractor.extract_with_ranges(ast, info.sheet)
+          plans << Plan.new(info, ast, calc_code, extraction.dependencies, extraction.ranges, nil)
         rescue ex : FormulaError
           problems << "#{info.key}: #{ex.message}; the cell will show #VALUE!"
-          plans << Plan.new(info, nil, "", Set(String).new, ex.message || "invalid formula")
+          plans << Plan.new(info, nil, "", Set(String).new, Set(DependencyExtractor::RangeDependency).new, ex.message || "invalid formula")
         end
       end
 
@@ -287,27 +288,15 @@ module Sheety
 
     # Generate code to set initial values
     private def generate_setup_code(initial_values : Hash(String, BigFloat | String | Bool), plans : Array(Plan)) : String
-      # Collect all unique ranges from formulas
-      ranges = Set(NamedTuple(sheet: String, start_col: String, start_row: Int32, end_col: String, end_row: Int32)).new
-
-      # Find range references directly in the calc code (only valid plans
-      # carry calc code). The bounds are already normalized by the code
-      # generator, so the emitted calls match what the tasks will fetch.
+      # Collect all unique ranges across the formulas. These come from the
+      # same AST walk that produced each plan's dependencies (normalized
+      # through CellRefs.parse_range, with the same sheet resolution the
+      # fetch calls use), so the emitted initialize_range calls always
+      # match the ranges the tasks actually fetch — including sheet names
+      # whose escaped literals no text scan could recover.
+      ranges = Set(DependencyExtractor::RangeDependency).new
       plans.each do |plan|
-        calc_code = plan.calc_code
-        next if calc_code.empty?
-        next unless calc_code.includes?("fetch_cell_range") # also matches fetch_cell_range_2d
-
-        # Both helpers take identical arguments, so one pattern covers them.
-        calc_code.scan(/fetch_cell_range(?:_2d)?\("([^"]+)", "([A-Z]+)", (\d+), "([A-Z]+)", (\d+)\)/) do |match|
-          ranges << {
-            sheet:     match[1],
-            start_col: match[2],
-            start_row: match[3].to_i,
-            end_col:   match[4],
-            end_row:   match[5].to_i,
-          }
-        end
+        plan.ranges.each { |range| ranges << range }
       end
 
       # Build a hash of only the cells with actual values
@@ -329,8 +318,9 @@ module Sheety
 
       # First, initialize all ranges to empty strings (required by Croupier)
       ranges.each do |range|
+        bounds = range.bounds
         setup += %(
-initialize_range(#{range[:sheet].inspect}, #{range[:start_col].inspect}, #{range[:start_row]}, #{range[:end_col].inspect}, #{range[:end_row]})
+initialize_range(#{range.sheet.inspect}, #{bounds.start_col.inspect}, #{bounds.start_row}, #{bounds.end_col.inspect}, #{bounds.end_row})
 )
       end
 
@@ -383,7 +373,8 @@ initialize_cells(#{all_cells.inspect})
         sheet_key_prefix = sheet.empty? ? "" : "#{sheet}!"
 
         appends = cells.map do |cell, data|
-          %(  sheet_#{sheet_var_name}_data << {cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: Croupier::TaskManager.get("#{sheet_key_prefix}#{cell}") || "(empty)"})
+          cell_key = "#{sheet_key_prefix}#{cell}"
+          %(  sheet_#{sheet_var_name}_data << {cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: Croupier::TaskManager.get(#{cell_key.inspect}) || "(empty)"})
         end.join("\n")
 
         "  # Sheet: #{sheet_display_name}
@@ -628,7 +619,9 @@ puts ""
                     elsif dependencies.empty?
                       "[] of String"
                     else
-                      "[" + dependencies.map { |dep| "\"kv://#{dep}\"" }.join(", ") + "] of String"
+                      # Inspect so sheet names that need escaping (a quote, a
+                      # backslash) stay valid Crystal literals.
+                      "[" + dependencies.map { |dep| %(kv://#{dep}).inspect }.join(", ") + "] of String"
                     end
 
       # Body: if this formula shares a calc_shape_N helper, call it with the
@@ -682,7 +675,8 @@ puts ""
         sheet_key_prefix = sheet.empty? ? "" : "#{sheet}!"
 
         appends = cells.map do |cell, data|
-          %(  sheet_#{sheet_var_name}_data << {cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: fetch_cell("#{sheet_key_prefix}#{cell}")})
+          cell_key = "#{sheet_key_prefix}#{cell}"
+          %(  sheet_#{sheet_var_name}_data << {cell: #{cell.inspect}, formula: #{data["formula"].inspect}, value: fetch_cell(#{cell_key.inspect})})
         end.join("\n")
 
         "  sheet_#{sheet_var_name}_data = [] of NamedTuple(cell: String, formula: String, value: String)

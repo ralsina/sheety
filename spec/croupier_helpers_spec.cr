@@ -49,6 +49,19 @@ describe Sheety::CroupierHelpers do
     end
   end
 
+  describe "sheet-less ranges" do
+    it "keys cells bare when the sheet is nil" do
+      Croupier::TaskManager.set("A1", "1")
+      Croupier::TaskManager.set("A2", "2")
+
+      fetch_cell_range(nil, "A", 1, "A", 2).should eq(["1", "2"])
+      fetch_cell_range_2d(nil, "A", 1, "A", 2).should eq([["1"], ["2"]])
+      range_inputs(nil, "A", 1, "A", 2).should eq(["kv://A1", "kv://A2"])
+      initialize_range(nil, "C", 1, "C", 1)
+      Croupier::TaskManager.get("C1").should eq("")
+    end
+  end
+
   describe "#bin_div" do
     it "divides numeric values" do
       bin_div("6", "4").should eq("1.5")

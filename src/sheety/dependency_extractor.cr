@@ -6,6 +6,17 @@ module Sheety
   class DependencyExtractor
     include AST
 
+    # A normalized range reference visited while extracting dependencies: the
+    # sheet it resolved to plus bounds already normalized by
+    # CellRefs.parse_range. The generator emits its initialize_range calls
+    # from these instead of regex-scanning its own generated code, so the
+    # two can never disagree.
+    record RangeDependency, sheet : String?, bounds : CellRefs::RangeBounds
+
+    # What #extract_with_ranges collected: the per-cell dependency keys and
+    # the range bounds they were expanded from.
+    record Extraction, dependencies : Set(String), ranges : Set(RangeDependency)
+
     # Sanity cap on expanded range size. A typo like A1:B99999999 would
     # otherwise expand into billions of dependency keys (and just as many
     # kv entries at runtime) before anything could stop it. Formulas using
@@ -15,9 +26,7 @@ module Sheety
 
     # Extract cell references from an AST node
     def extract(node : Node, sheet : String? = nil) : Set(String)
-      dependencies = Set(String).new
-      visit(node, dependencies, sheet)
-      dependencies
+      extract_with_ranges(node, sheet).dependencies
     end
 
     # Extract from formula string
@@ -26,25 +35,34 @@ module Sheety
       extract(ast, sheet)
     end
 
+    # Extract cell dependencies and the normalized range bounds they were
+    # expanded from, in a single AST walk so the two results always agree.
+    def extract_with_ranges(node : Node, sheet : String? = nil) : Extraction
+      dependencies = Set(String).new
+      ranges = Set(RangeDependency).new
+      visit(node, dependencies, ranges, sheet)
+      Extraction.new(dependencies, ranges)
+    end
+
     # Visitor methods for each node type
 
-    private def visit(node : Number, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : Number, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       # Numbers have no dependencies
     end
 
-    private def visit(node : StringLiteral, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : StringLiteral, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       # Strings have no dependencies
     end
 
-    private def visit(node : Boolean, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : Boolean, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       # Booleans have no dependencies
     end
 
-    private def visit(node : ErrorValue, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : ErrorValue, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       # Errors have no dependencies
     end
 
-    private def visit(node : CellRef, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : CellRef, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       # Strip $ anchors so dependencies match the keys the generated code
       # actually fetches.
       ref = node.reference.upcase.delete('$')
@@ -53,7 +71,7 @@ module Sheety
       dependencies.add(key)
     end
 
-    private def visit(node : RangeRef, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : RangeRef, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       # Normalize through CellRefs.parse_range so the extracted dependencies
       # cover exactly the cells the generated code will fetch ($ anchors,
       # reversed bounds, whole-column clamping). Unsupported ranges raise:
@@ -63,35 +81,40 @@ module Sheety
       raise FormulaError.new("Unsupported range reference: #{node.range}") unless bounds
       cell_sheet = node.sheet || sheet
 
+      # Record the bounds before expanding: the generator initializes the
+      # range from them. Oversized ranges still raise below, and the caller
+      # discards this formula's results on that path.
+      ranges << RangeDependency.new(cell_sheet, bounds)
+
       # Add each cell in range as a dependency
       expand_range(bounds.start_col, bounds.start_row, bounds.end_col, bounds.end_row, cell_sheet).each do |ref|
         dependencies.add(ref)
       end
     end
 
-    private def visit(node : NamedRef, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : NamedRef, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       # Named references would need external resolution
       # For now, we don't track them as dependencies
     end
 
-    private def visit(node : UnaryOp, dependencies : Set(String), sheet : String?) : Nil
-      visit(node.operand, dependencies, sheet)
+    private def visit(node : UnaryOp, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
+      visit(node.operand, dependencies, ranges, sheet)
     end
 
-    private def visit(node : BinaryOp, dependencies : Set(String), sheet : String?) : Nil
-      visit(node.left, dependencies, sheet)
-      visit(node.right, dependencies, sheet)
+    private def visit(node : BinaryOp, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
+      visit(node.left, dependencies, ranges, sheet)
+      visit(node.right, dependencies, ranges, sheet)
     end
 
-    private def visit(node : FunctionCall, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : FunctionCall, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       node.arguments.each do |arg|
-        visit(arg, dependencies, sheet)
+        visit(arg, dependencies, ranges, sheet)
       end
     end
 
-    private def visit(node : ArrayConstant, dependencies : Set(String), sheet : String?) : Nil
+    private def visit(node : ArrayConstant, dependencies : Set(String), ranges : Set(RangeDependency), sheet : String?) : Nil
       node.elements.each do |elem|
-        visit(elem, dependencies, sheet)
+        visit(elem, dependencies, ranges, sheet)
       end
     end
 

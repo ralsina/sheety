@@ -956,6 +956,43 @@ describe Sheety::CroupierGenerator do
       source.should contain(%(range_inputs("Sheet1", "B", 1, "C", 5)))
     end
   end
+
+  describe "range initialization" do
+    it "initializes ranges on sheets whose names need escaping" do
+      gen = Sheety::CroupierGenerator.new
+      # A double quote in the sheet name gets escaped by String#inspect, so
+      # the emitted fetch call is fetch_cell_range("Q\"1", ...). The setup
+      # code must initialize the very same range, character for character.
+      gen.add_formula("C1", "=SUM(A1:A5)", %(Q"1))
+      source = gen.generate_source.entrypoint
+
+      sheet_literal = %(Q"1).inspect
+      source.should contain(%(fetch_cell_range(#{sheet_literal}, "A", 1, "A", 5)))
+      source.should contain(%(initialize_range(#{sheet_literal}, "A", 1, "A", 5)))
+    end
+
+    it "emits consistent nil-sheet wiring for sheet-less range formulas" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("C1", "=SUM(A1:A5)")
+      source = gen.generate_source.entrypoint
+
+      # Sheet-less spreadsheets key cells bare; the range helpers accept a
+      # nil sheet for that, so initialize, fetch and input wiring all
+      # reference the same bare keys.
+      source.should contain(%(initialize_range(nil, "A", 1, "A", 5)))
+      source.should contain(%(fetch_cell_range(nil, "A", 1, "A", 5)))
+      source.should contain(%(range_inputs(nil, "A", 1, "A", 5)))
+    end
+
+    it "escapes dependency input keys for sheets whose names need escaping" do
+      gen = Sheety::CroupierGenerator.new
+      gen.add_formula("B1", "=A1*2", %(Q"1))
+      source = gen.generate_source.entrypoint
+
+      escaped_key = %(kv://Q"1!A1).inspect
+      source.should contain(%([#{escaped_key}] of String))
+    end
+  end
 end
 
 describe Sheety::Functions do
@@ -1039,6 +1076,30 @@ describe Sheety::DependencyExtractor do
       expect_raises(Sheety::FormulaError, /expands to/) do
         extractor.extract(ast, "Sheet1")
       end
+    end
+  end
+
+  describe "#extract_with_ranges" do
+    it "collects normalized range bounds alongside cell dependencies" do
+      extractor = Sheety::DependencyExtractor.new
+      # Reversed bounds normalize to A1:B2, $ anchors are stripped.
+      ast = Sheety.parse_to_ast("=SUM($B$2:$A$1)")
+      extraction = extractor.extract_with_ranges(ast, "Sheet1")
+
+      extraction.dependencies.should contain("Sheet1!A1")
+      extraction.dependencies.should contain("Sheet1!B2")
+      expected_bounds = Sheety::CellRefs::RangeBounds.new("A", 1, "B", 2)
+      extraction.ranges.should contain(Sheety::DependencyExtractor::RangeDependency.new("Sheet1", expected_bounds))
+      extraction.ranges.size.should eq(1)
+    end
+
+    it "resolves a range's sheet from the reference before the context" do
+      extractor = Sheety::DependencyExtractor.new
+      ast = Sheety.parse_to_ast("=SUM(Other!A1:A5)")
+      extraction = extractor.extract_with_ranges(ast, "Sheet1")
+
+      expected_bounds = Sheety::CellRefs::RangeBounds.new("A", 1, "A", 5)
+      extraction.ranges.should contain(Sheety::DependencyExtractor::RangeDependency.new("Other", expected_bounds))
     end
   end
 end
